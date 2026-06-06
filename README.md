@@ -62,6 +62,10 @@ runs motion correction into `corrected_<name>.h5`, and then displays the
 corrected HDF5 movie. A progress bar in the Movie panel reports conversion and
 motion-correction phases.
 
+<p align="center">
+  <img src="./media/2026-06-06%20231838.png" width="800" alt="App Screenshot">
+</p>
+
 ## Build And Publish
 
 ```bash
