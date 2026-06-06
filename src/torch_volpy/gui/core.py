@@ -19,6 +19,39 @@ Rect = Tuple[float, float, float, float]
 Point = Tuple[float, float]
 
 
+def _normalize_max_shifts(max_shifts: Union[int, Tuple[int, int]]) -> Tuple[int, int]:
+    if isinstance(max_shifts, int):
+        if max_shifts < 0:
+            raise ValueError("max_shifts must be >= 0")
+        return int(max_shifts), int(max_shifts)
+
+    if len(max_shifts) != 2:
+        raise ValueError("max_shifts must be an int or a tuple (max_y, max_x)")
+
+    max_y, max_x = int(max_shifts[0]), int(max_shifts[1])
+    if max_y < 0 or max_x < 0:
+        raise ValueError("max_shifts values must be >= 0")
+    return max_y, max_x
+
+
+def _fit_max_shifts_to_frame_shape(
+    max_shifts: Union[int, Tuple[int, int]],
+    frame_shape: Sequence[int],
+) -> Tuple[int, int]:
+    max_y, max_x = _normalize_max_shifts(max_shifts)
+    shape = tuple(int(v) for v in frame_shape)
+    if len(shape) < 2:
+        return max_y, max_x
+
+    height, width = shape[:2]
+    if height <= 0 or width <= 0:
+        raise ValueError(f"Movie spatial dimensions must be positive, got {(height, width)}")
+
+    limit_y = max(0, (height - 1) // 2)
+    limit_x = max(0, (width - 1) // 2)
+    return min(max_y, limit_y), min(max_x, limit_x)
+
+
 class TiffMovie:
     """Small Movie-compatible adapter for TIFF stacks used by the GUI."""
 
@@ -329,6 +362,8 @@ def motion_correct_movie(
         if progress_callback is not None:
             progress_callback(100, f"Using existing corrected movie: {out_h5_path.name}")
         return out_h5_path
+
+    max_shifts = _fit_max_shifts_to_frame_shape(max_shifts, movie.frame_shape)
 
     try:
         mc = MotionCorrect(
@@ -661,6 +696,62 @@ def polygon_to_mask(
         xj, yj = xi, yi
 
     mask[inside] = int(label)
+    return mask
+
+
+def freehand_to_mask(
+    points: Sequence[Point],
+    shape: Tuple[int, int],
+    radius: float = 2.5,
+    label: int = 1,
+    fill_closed: bool = True,
+) -> np.ndarray:
+    """Rasterize a freehand stroke into a labeled mask."""
+
+    h, w = int(shape[0]), int(shape[1])
+    mask = np.zeros((h, w), dtype=np.int32)
+    if h <= 0 or w <= 0:
+        return mask
+
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2 or pts.shape[0] == 0:
+        return mask
+
+    radius = max(0.5, float(radius))
+    radius_sq = radius * radius
+    segments = [(pts[0], pts[0])] if pts.shape[0] == 1 else list(zip(pts[:-1], pts[1:]))
+    for start, end in segments:
+        x0, y0 = float(start[0]), float(start[1])
+        x1, y1 = float(end[0]), float(end[1])
+        xa = max(0, int(np.floor(min(x0, x1) - radius - 1.0)))
+        xb = min(w, int(np.ceil(max(x0, x1) + radius + 1.0)))
+        ya = max(0, int(np.floor(min(y0, y1) - radius - 1.0)))
+        yb = min(h, int(np.ceil(max(y0, y1) + radius + 1.0)))
+        if xb <= xa or yb <= ya:
+            continue
+
+        yy, xx = np.mgrid[ya:yb, xa:xb]
+        px = xx + 0.5
+        py = yy + 0.5
+        dx = x1 - x0
+        dy = y1 - y0
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 1e-12:
+            dist_sq = (px - x0) ** 2 + (py - y0) ** 2
+        else:
+            t = ((px - x0) * dx + (py - y0) * dy) / length_sq
+            t = np.clip(t, 0.0, 1.0)
+            proj_x = x0 + t * dx
+            proj_y = y0 + t * dy
+            dist_sq = (px - proj_x) ** 2 + (py - proj_y) ** 2
+        patch = mask[ya:yb, xa:xb]
+        patch[dist_sq <= radius_sq] = int(label)
+
+    if fill_closed and pts.shape[0] >= 3:
+        close_distance = float(np.hypot(*(pts[-1] - pts[0])))
+        if close_distance <= max(3.0, radius * 2.5):
+            filled = polygon_to_mask(pts, (h, w), label=label)
+            mask[filled > 0] = int(label)
     return mask
 
 

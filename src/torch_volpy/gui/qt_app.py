@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import sys
@@ -19,6 +20,7 @@ from .core import (
     ensure_shape_matches,
     extract_mean_trace,
     extract_mean_traces,
+    freehand_to_mask,
     iter_spikepursuit_results,
     is_motion_corrected_h5,
     load_mask_file,
@@ -26,7 +28,6 @@ from .core import (
     motion_correct_movie,
     normalize_to_uint8,
     open_movie,
-    polygon_to_mask,
     read_display_frame,
     release_torch_memory,
     rectangle_to_mask,
@@ -36,10 +37,11 @@ from .core import (
 
 try:
     from PyQt6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, pyqtProperty, pyqtSignal, qInstallMessageHandler
-    from PyQt6.QtGui import QBrush, QColor, QCursor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion
+    from PyQt6.QtGui import QBrush, QColor, QCursor, QFont, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion, QShortcut
     from PyQt6.QtWidgets import (
         QApplication,
         QAbstractSpinBox,
+        QBoxLayout,
         QCheckBox,
         QComboBox,
         QDialog,
@@ -48,8 +50,8 @@ try:
         QFormLayout,
         QFrame,
         QGridLayout,
+        QGraphicsPathItem,
         QGraphicsPixmapItem,
-        QGraphicsPolygonItem,
         QGraphicsRectItem,
         QGraphicsScene,
         QGraphicsSimpleTextItem,
@@ -77,10 +79,11 @@ try:
 except ImportError as pyqt6_error:
     try:
         from PyQt5.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, pyqtProperty, pyqtSignal, qInstallMessageHandler
-        from PyQt5.QtGui import QBrush, QColor, QCursor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion
+        from PyQt5.QtGui import QBrush, QColor, QCursor, QFont, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion
         from PyQt5.QtWidgets import (
             QApplication,
             QAbstractSpinBox,
+            QBoxLayout,
             QCheckBox,
             QComboBox,
             QDialog,
@@ -89,8 +92,8 @@ except ImportError as pyqt6_error:
             QFormLayout,
             QFrame,
             QGridLayout,
+            QGraphicsPathItem,
             QGraphicsPixmapItem,
-            QGraphicsPolygonItem,
             QGraphicsRectItem,
             QGraphicsScene,
             QGraphicsSimpleTextItem,
@@ -105,6 +108,7 @@ except ImportError as pyqt6_error:
             QProgressBar,
             QProxyStyle,
             QPushButton,
+            QShortcut,
             QScrollArea,
             QSizePolicy,
             QSlider,
@@ -175,6 +179,13 @@ def _style_enum(group: str, name: str):
     return getattr(QStyle, name)
 
 
+def _box_direction(name: str):
+    namespace = getattr(QBoxLayout, "Direction", None)
+    if namespace is not None:
+        return getattr(namespace, name)
+    return getattr(QBoxLayout, name)
+
+
 def _event_enum(name: str):
     namespace = getattr(QEvent, "Type", None)
     if namespace is not None:
@@ -187,6 +198,7 @@ RIGHT_BUTTON = _qt_enum("MouseButton", "RightButton")
 HORIZONTAL = _qt_enum("Orientation", "Horizontal")
 VERTICAL = _qt_enum("Orientation", "Vertical")
 ALIGN_RIGHT = _qt_enum("AlignmentFlag", "AlignRight")
+ALIGN_LEFT = _qt_enum("AlignmentFlag", "AlignLeft")
 ALIGN_TOP = _qt_enum("AlignmentFlag", "AlignTop")
 ALIGN_CENTER = _qt_enum("AlignmentFlag", "AlignCenter")
 CLICK_FOCUS = _qt_enum("FocusPolicy", "ClickFocus")
@@ -197,16 +209,21 @@ NO_BRUSH = _qt_enum("BrushStyle", "NoBrush")
 SOLID_LINE = _qt_enum("PenStyle", "SolidLine")
 ROUND_CAP = _qt_enum("PenCapStyle", "RoundCap")
 ROUND_JOIN = _qt_enum("PenJoinStyle", "RoundJoin")
+BOX_LEFT_TO_RIGHT = _box_direction("LeftToRight")
+BOX_TOP_TO_BOTTOM = _box_direction("TopToBottom")
 POPUP_WINDOW = _qt_enum("WindowType", "Popup")
 TOOLTIP_WINDOW = _qt_enum("WindowType", "ToolTip")
 FRAMELESS_WINDOW_HINT = _qt_enum("WindowType", "FramelessWindowHint")
 NO_DROP_SHADOW_WINDOW_HINT = _qt_enum("WindowType", "NoDropShadowWindowHint")
 WA_STYLED_BACKGROUND = _qt_enum("WidgetAttribute", "WA_StyledBackground")
 WA_TRANSLUCENT_BACKGROUND = _qt_enum("WidgetAttribute", "WA_TranslucentBackground")
+WA_TRANSPARENT_FOR_MOUSE_EVENTS = _qt_enum("WidgetAttribute", "WA_TransparentForMouseEvents")
 EVENT_TOOLTIP = _event_enum("ToolTip")
 EVENT_LEAVE = _event_enum("Leave")
 EVENT_HIDE = _event_enum("Hide")
 EVENT_MOUSE_BUTTON_PRESS = _event_enum("MouseButtonPress")
+EVENT_MOUSE_MOVE = _event_enum("MouseMove")
+EVENT_MOUSE_BUTTON_RELEASE = _event_enum("MouseButtonRelease")
 EVENT_WINDOW_DEACTIVATE = _event_enum("WindowDeactivate")
 SPIN_UP_INDICATOR = _style_enum("PrimitiveElement", "PE_IndicatorSpinUp")
 SPIN_DOWN_INDICATOR = _style_enum("PrimitiveElement", "PE_IndicatorSpinDown")
@@ -218,6 +235,9 @@ MIN_WINDOW_HEIGHT = 520
 INITIAL_SCREEN_WIDTH_FRACTION = 0.92
 INITIAL_SCREEN_HEIGHT_FRACTION = 0.90
 MOVIE_VIEW_MIN_HEIGHT = 120
+ROI_MASK_HISTORY_LIMIT = 32
+MOVIE_ZOOM_MIN_PERCENT = 10.0
+MOVIE_ZOOM_MAX_PERCENT = 100000.0
 APP_STYLESHEET = """
 QWidget {
     color: #0f172a;
@@ -275,13 +295,18 @@ QLabel#footerMetric {
     border-left: 1px solid #e2e8f0;
 }
 
-QFrame#viewerCard,
 QWidget#tracePanel,
 QDialog#traceWindow,
 QFrame#inspectorCard,
 QFrame#metricTile {
     background-color: #ffffff;
     border: 1px solid #dfe7f2;
+    border-radius: 8px;
+}
+
+QFrame#viewerCard {
+    background-color: #ffffff;
+    border: none;
     border-radius: 8px;
 }
 
@@ -717,8 +742,32 @@ QCheckBox {
 
 QGraphicsView#movieView {
     background-color: #f8fafc;
-    border: 1px solid #cbd5e1;
+    border: none;
+}
+
+QFrame#roiToolIsland {
+    background-color: rgba(255, 255, 255, 236);
+    border: 1px solid #dfe7f2;
     border-radius: 8px;
+}
+
+QPushButton[variant="roiTool"] {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    min-height: 28px;
+    min-width: 30px;
+    padding: 0;
+}
+
+QPushButton[variant="roiTool"]:hover {
+    background-color: #f1f5f9;
+    border-color: #e2e8f0;
+}
+
+QPushButton[variant="roiTool"]:checked {
+    background-color: #dbeafe;
+    border-color: #60a5fa;
 }
 
 QWidget#tracePanel,
@@ -960,6 +1009,34 @@ RESET_VIEW_SVG = """
 </svg>
 """
 
+BRUSH_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <path d="M12.8 4.2 16 7.4l-6.4 6.4H6.4v-3.2l6.4-6.4Z" fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M5.8 14.4c-.9.9-1.8 1.3-3.1 1.2.4-1.2.7-2.2 1.6-3.1" fill="none" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>
+</svg>
+"""
+
+RECTANGLE_ROI_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <rect x="4.2" y="5.2" width="11.6" height="9.6" rx="1.2" fill="none" stroke="{color}" stroke-width="1.7"/>
+</svg>
+"""
+
+ERASER_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <path d="M8.1 15.2h7.2" fill="none" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M4.1 10.5 10.8 3.8a1.7 1.7 0 0 1 2.4 0l2 2a1.7 1.7 0 0 1 0 2.4L8.7 14.7a1.9 1.9 0 0 1-2.7 0l-1.9-1.9a1.9 1.9 0 0 1 0-2.7Z" fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M7.1 7.5 11.5 12" fill="none" stroke="{color}" stroke-width="1.6" stroke-linecap="round"/>
+</svg>
+"""
+
+UNDO_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <path d="M7.3 7H5.1V4.8" fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M5.4 7.1A5.6 5.6 0 1 1 5.1 12" fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
+"""
+
 
 def _icon_from_svg(svg: str) -> QIcon:
     pixmap = QPixmap()
@@ -1130,6 +1207,115 @@ class ModernSpinBox(_ModernSpinBoxMixin, QSpinBox):
         self._init_modern_spinbox()
 
 
+class RoiBrushSizeSpinBox(ModernSpinBox):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._vertical_display = False
+
+    def sizeHint(self) -> QSize:
+        if self._vertical_display:
+            return QSize(32, 88)
+        return super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        if self._vertical_display:
+            return QSize(32, 88)
+        return super().minimumSizeHint()
+
+    def set_vertical_display(self, vertical: bool) -> None:
+        vertical = bool(vertical)
+        self._vertical_display = vertical
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        if vertical:
+            self.setSuffix("")
+            self.setFixedSize(32, 88)
+        else:
+            self.setSuffix(" px")
+            self.setFixedWidth(70)
+        self._sync_line_edit_visibility()
+        self.updateGeometry()
+        self.update()
+
+    def _sync_line_edit_visibility(self) -> None:
+        self.lineEdit().setVisible(not self._vertical_display)
+
+    def _spin_button_at(self, point) -> Optional[str]:
+        if not self._vertical_display:
+            return super()._spin_button_at(point)
+        if not self.isEnabled():
+            return None
+        if point.y() <= 18:
+            return "up"
+        if point.y() >= self.height() - 18:
+            return "down"
+        return None
+
+    def paintEvent(self, event) -> None:
+        if not self._vertical_display:
+            super().paintEvent(event)
+            return
+
+        self._sync_line_edit_visibility()
+        painter = QPainter(self)
+        painter.setRenderHint(ANTIALIASING)
+        enabled = self.isEnabled()
+        outer = QRectF(0.5, 0.5, max(1.0, self.width() - 1.0), max(1.0, self.height() - 1.0))
+        painter.setPen(QPen(QColor("#cbd5e1" if enabled else "#dbe3ef"), 1))
+        painter.setBrush(QBrush(QColor("#ffffff" if enabled else "#f8fafc")))
+        painter.drawRoundedRect(outer, 7.0, 7.0)
+
+        top_button = QRectF(1.0, 1.0, max(1.0, self.width() - 2.0), 18.0)
+        bottom_button = QRectF(1.0, max(1.0, self.height() - 19.0), max(1.0, self.width() - 2.0), 18.0)
+        active_button = self._pressed_spin_button or self._hover_spin_button
+        if enabled and active_button == "up":
+            painter.fillRect(top_button.adjusted(1.0, 1.0, -1.0, 0.0), QColor("#e2e8f0"))
+        elif enabled and active_button == "down":
+            painter.fillRect(bottom_button.adjusted(1.0, 0.0, -1.0, -1.0), QColor("#e2e8f0"))
+
+        painter.setPen(QPen(QColor("#e2e8f0"), 1))
+        painter.drawLine(QPointF(outer.left(), top_button.bottom()), QPointF(outer.right(), top_button.bottom()))
+        painter.drawLine(QPointF(outer.left(), bottom_button.top()), QPointF(outer.right(), bottom_button.top()))
+
+        self._draw_modern_spin_arrow(
+            painter,
+            QPointF(top_button.center().x(), top_button.center().y() + 0.5),
+            up=True,
+            enabled=enabled and self._can_step_spin_button("up"),
+        )
+        self._draw_modern_spin_arrow(
+            painter,
+            QPointF(bottom_button.center().x(), bottom_button.center().y() - 0.5),
+            up=False,
+            enabled=enabled and self._can_step_spin_button("down"),
+        )
+
+        value_rect = QRectF(1.0, top_button.bottom(), max(1.0, self.width() - 2.0), max(1.0, bottom_button.top() - top_button.bottom()))
+        painter.save()
+        painter.translate(value_rect.center())
+        painter.rotate(-90.0)
+        rotated_rect = QRectF(
+            -value_rect.height() / 2.0,
+            -value_rect.width() / 2.0,
+            value_rect.height(),
+            value_rect.width(),
+        )
+        painter.setPen(QPen(QColor("#0f172a" if enabled else "#94a3b8")))
+        painter.drawText(rotated_rect, ALIGN_CENTER, f"{self.value()} px")
+        painter.restore()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._vertical_display:
+            self._sync_line_edit_visibility()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._sync_line_edit_visibility()
+        if self._vertical_display:
+            QTimer.singleShot(0, self._sync_line_edit_visibility)
+
+
 class ModernDoubleSpinBox(_ModernSpinBoxMixin, QDoubleSpinBox):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -1213,12 +1399,212 @@ def _make_toolbar_button(text: str, svg: Optional[str] = None, *, checkable: boo
     return button
 
 
+def _make_roi_tool_button(svg: str, tooltip: str, *, checkable: bool = True) -> QPushButton:
+    button = QPushButton()
+    button.setCheckable(checkable)
+    button.setIcon(_icon_from_template(svg))
+    button.setIconSize(QSize(18, 18))
+    button.setFixedSize(32, 30)
+    button.setToolTip(tooltip)
+    _set_button_role(button, "roiTool")
+    return button
+
+
 def _make_divider() -> QFrame:
     divider = QFrame()
     divider.setObjectName("verticalDivider")
     divider.setFixedWidth(1)
     divider.setAttribute(WA_STYLED_BACKGROUND, True)
     return divider
+
+
+class RoiToolIsland(QFrame):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("roiToolIsland")
+        self.setAttribute(WA_STYLED_BACKGROUND, True)
+        self.setSizePolicy(SIZE_FIXED, SIZE_FIXED)
+
+        self.margin = 10
+        self.dock_side = "left"
+        self._drag_global_pos = None
+        self._drag_widget_pos = None
+        self._drag_source: Optional[QObject] = None
+        self._dragging = False
+        self._drag_threshold = 6
+        self._drag_button_threshold = max(14, int(QApplication.startDragDistance()))
+
+        self.tool_layout = QBoxLayout(BOX_TOP_TO_BOTTOM, self)
+        self.tool_layout.setContentsMargins(5, 6, 5, 6)
+        self.tool_layout.setSpacing(4)
+
+        self.installEventFilter(self)
+        self._apply_orientation()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self or self.isAncestorOf(obj):
+            event_type = event.type()
+            if event_type == EVENT_MOUSE_BUTTON_PRESS and event.button() == LEFT_BUTTON:
+                self._drag_global_pos = _event_global_pos(event)
+                self._drag_widget_pos = self.pos()
+                self._drag_source = obj if isinstance(obj, QObject) else None
+                self._dragging = False
+                self.raise_()
+                return False
+            if self._drag_global_pos is not None and event_type == EVENT_MOUSE_MOVE:
+                delta = _event_global_pos(event) - self._drag_global_pos
+                threshold = (
+                    self._drag_button_threshold
+                    if isinstance(self._drag_source, (QPushButton, QAbstractSpinBox, QLineEdit))
+                    else self._drag_threshold
+                )
+                if not self._dragging and delta.manhattanLength() < threshold:
+                    return False
+                self._dragging = True
+                if isinstance(self._drag_source, QPushButton):
+                    self._drag_source.setDown(False)
+                target = self._drag_widget_pos + delta
+                self._move_clamped(target.x(), target.y())
+                event.accept()
+                return True
+            if self._drag_global_pos is not None and event_type == EVENT_MOUSE_BUTTON_RELEASE:
+                was_dragging = self._dragging
+                if was_dragging and isinstance(self._drag_source, QPushButton):
+                    self._drag_source.setDown(False)
+                self._drag_global_pos = None
+                self._drag_widget_pos = None
+                self._drag_source = None
+                self._dragging = False
+                if was_dragging:
+                    self.snap_to_nearest_side()
+                    event.accept()
+                    return True
+                return False
+        return super().eventFilter(obj, event)
+
+    def add_tool_widget(self, widget: QWidget) -> None:
+        self._install_drag_filter(widget)
+        self.tool_layout.addWidget(widget)
+
+    def _install_drag_filter(self, widget: QWidget) -> None:
+        widget.installEventFilter(self)
+        for child in widget.findChildren(QWidget):
+            child.installEventFilter(self)
+
+    def set_dock_side(self, side: str) -> None:
+        side = side if side in {"left", "right", "top", "bottom"} else "left"
+        if side != self.dock_side:
+            self.dock_side = side
+            self._apply_orientation()
+        self.reposition_to_dock()
+
+    def snap_to_nearest_side(self) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        center_x = self.x() + self.width() / 2.0
+        center_y = self.y() + self.height() / 2.0
+        distances = {
+            "left": center_x,
+            "right": max(0.0, parent.width() - center_x),
+            "top": center_y,
+            "bottom": max(0.0, parent.height() - center_y),
+        }
+        self.set_dock_side(min(distances, key=distances.get))
+
+    def reposition_to_dock(self) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.adjustSize()
+        if self.dock_side in {"top", "bottom"}:
+            x = self.x() if self.x() > 0 else self.margin
+            y = self.margin if self.dock_side == "top" else parent.height() - self.height() - self.margin
+        else:
+            x = self.margin if self.dock_side == "left" else parent.width() - self.width() - self.margin
+            y = self.y() if self.y() > 0 else self.margin
+        self._move_clamped(x, y)
+        self.raise_()
+
+    def _apply_orientation(self) -> None:
+        horizontal = self.dock_side in {"top", "bottom"}
+        self.tool_layout.setDirection(BOX_LEFT_TO_RIGHT if horizontal else BOX_TOP_TO_BOTTOM)
+        if horizontal:
+            self.tool_layout.setContentsMargins(6, 5, 6, 5)
+        else:
+            self.tool_layout.setContentsMargins(5, 6, 5, 6)
+        for index in range(self.tool_layout.count()):
+            item = self.tool_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if isinstance(widget, RoiBrushSizeSpinBox):
+                widget.set_vertical_display(not horizontal)
+        self.adjustSize()
+
+    def _move_clamped(self, x: float, y: float) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            self.move(int(round(x)), int(round(y)))
+            return
+        max_x = max(self.margin, parent.width() - self.width() - self.margin)
+        max_y = max(self.margin, parent.height() - self.height() - self.margin)
+        clamped_x = max(self.margin, min(float(max_x), float(x)))
+        clamped_y = max(self.margin, min(float(max_y), float(y)))
+        self.move(int(round(clamped_x)), int(round(clamped_y)))
+
+
+class MovieCardBorderOverlay(QWidget):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setAttribute(WA_TRANSPARENT_FOR_MOUSE_EVENTS, True)
+        self.setAttribute(WA_TRANSLUCENT_BACKGROUND, True)
+        self.setAutoFillBackground(False)
+
+    def paintEvent(self, event) -> None:
+        outer_rect = QRectF(self.rect())
+        border_rect = outer_rect.adjusted(0.5, 0.5, -0.5, -0.5)
+        if border_rect.width() <= 0 or border_rect.height() <= 0:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(ANTIALIASING)
+
+        outer_path = QPainterPath()
+        outer_path.addRect(outer_rect)
+        card_path = QPainterPath()
+        card_path.addRoundedRect(border_rect, 8.0, 8.0)
+        painter.fillPath(outer_path.subtracted(card_path), QBrush(QColor("#f3f6fb")))
+
+        painter.setBrush(QBrush(NO_BRUSH))
+        pen = QPen(QColor("#dfe7f2"), 1)
+        pen.setJoinStyle(ROUND_JOIN)
+        painter.setPen(pen)
+        painter.drawRoundedRect(border_rect, 8.0, 8.0)
+
+
+class MovieCardFrame(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("viewerCard")
+        self.setAttribute(WA_STYLED_BACKGROUND, True)
+        self.border_overlay = MovieCardBorderOverlay(self)
+        self.raise_border()
+
+    def raise_border(self) -> None:
+        self.border_overlay.setGeometry(self.rect())
+        self.border_overlay.raise_()
+        self.border_overlay.update()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.raise_border()
+
+
+class MovieStage(QWidget):
+    resized = Signal()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.resized.emit()
 
 
 def _modernize_combo_box(combo_box: QComboBox) -> None:
@@ -1649,6 +2035,12 @@ def _event_pos(event):
     if hasattr(event, "position"):
         return event.position().toPoint()
     return event.pos()
+
+
+def _event_global_pos(event):
+    if hasattr(event, "globalPosition"):
+        return event.globalPosition().toPoint()
+    return event.globalPos()
 
 
 def _advanced_defaults(method: str) -> dict[str, Any]:
@@ -2549,7 +2941,9 @@ class TraceCanvas(FigureCanvas):
 class MovieGraphicsView(QGraphicsView):
     roiChanged = Signal(object, object)
     roiPicked = Signal(int)
+    roiSelectionCleared = Signal()
     statusChanged = Signal(str)
+    zoomChanged = Signal(float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -2563,6 +2957,8 @@ class MovieGraphicsView(QGraphicsView):
         self.setAlignment(ALIGN_CENTER)
         self.setHorizontalScrollBarPolicy(SCROLLBAR_ALWAYS_OFF)
         self.setVerticalScrollBarPolicy(SCROLLBAR_ALWAYS_OFF)
+        self.setFrameShape(QFrame.Shape.NoFrame if PYQT_VERSION == 6 else QFrame.NoFrame)
+        self.viewport().setAttribute(WA_STYLED_BACKGROUND, True)
 
         self.image_item = QGraphicsPixmapItem()
         self.image_item.setZValue(0)
@@ -2587,12 +2983,20 @@ class MovieGraphicsView(QGraphicsView):
         self.current_mask: Optional[np.ndarray] = None
         self.current_roi_id: int = 1
         self._drag_start: Optional[QPointF] = None
-        self._polygon_points: list[QPointF] = []
+        self._freehand_points: list[QPointF] = []
+        self.brush_size = 5.0
         self.fit_mode = "fit"
         self.zoom_percent = 100.0
 
         self.setMouseTracking(True)
         self.show_empty_message()
+
+    def _set_zoom_percent_value(self, percent: float, *, emit_signal: bool = True) -> None:
+        percent = max(MOVIE_ZOOM_MIN_PERCENT, min(MOVIE_ZOOM_MAX_PERCENT, float(percent)))
+        changed = not math.isclose(self.zoom_percent, percent, rel_tol=0.0, abs_tol=0.05)
+        self.zoom_percent = percent
+        if changed and emit_signal:
+            self.zoomChanged.emit(self.zoom_percent)
 
     def set_fit_mode(self, mode: str) -> None:
         mode = mode.strip().lower()
@@ -2603,12 +3007,12 @@ class MovieGraphicsView(QGraphicsView):
 
     def set_actual_size(self) -> None:
         self.fit_mode = "actual"
-        self.zoom_percent = 100.0
+        self._set_zoom_percent_value(100.0)
         self.apply_view_transform()
 
     def set_zoom_percent(self, percent: float) -> None:
         self.fit_mode = "actual"
-        self.zoom_percent = max(10.0, min(800.0, float(percent)))
+        self._set_zoom_percent_value(percent)
         self.apply_view_transform()
 
     def zoom_by(self, factor: float) -> None:
@@ -2635,11 +3039,21 @@ class MovieGraphicsView(QGraphicsView):
         scale = max(0.01, float(scale))
         self.scale(scale, scale)
         self.centerOn(rect.center())
+        self._set_zoom_percent_value(scale * 100.0)
 
     def set_roi_mode(self, mode: str) -> None:
-        self.roi_mode = mode.lower()
-        self._polygon_points.clear()
+        mode = mode.strip().lower()
+        if mode not in {"select", "freehand", "rectangle", "eraser"}:
+            mode = "select"
+        self.roi_mode = mode
+        self._drag_start = None
+        self._freehand_points.clear()
         self._remove_roi_item()
+        cursor_name = "ArrowCursor" if mode == "select" else "CrossCursor"
+        self.setCursor(QCursor(_qt_enum("CursorShape", cursor_name)))
+
+    def set_brush_size(self, size: int) -> None:
+        self.brush_size = max(1.0, float(size))
 
     def set_frame(self, frame: np.ndarray, *, rgb: bool = False) -> None:
         frame = np.asarray(frame)
@@ -2662,7 +3076,7 @@ class MovieGraphicsView(QGraphicsView):
 
     def show_empty_message(self, message: str = "No movie loaded") -> None:
         self._drag_start = None
-        self._polygon_points.clear()
+        self._freehand_points.clear()
         self._remove_roi_item()
         self.clear_mask_overlay()
         self.image_item.setPixmap(QPixmap())
@@ -2674,7 +3088,8 @@ class MovieGraphicsView(QGraphicsView):
         self.apply_view_transform()
 
     def clear_roi(self) -> None:
-        self._polygon_points.clear()
+        self._drag_start = None
+        self._freehand_points.clear()
         self._remove_roi_item()
         self.clear_mask_overlay()
 
@@ -2797,20 +3212,27 @@ class MovieGraphicsView(QGraphicsView):
             self.scene.removeItem(self.roi_item)
             self.roi_item = None
 
-    def _make_pen(self) -> QPen:
-        pen = QPen(QColor("#00bcd4"))
-        pen.setWidthF(1.8)
+    def _make_pen(self, width: float = 1.8, color: str = "#00bcd4") -> QPen:
+        pen = QPen(QColor(color))
+        pen.setWidthF(float(width))
         pen.setStyle(SOLID_LINE)
+        pen.setCapStyle(ROUND_CAP)
+        pen.setJoinStyle(ROUND_JOIN)
         return pen
 
     def mousePressEvent(self, event) -> None:
         point = self._map_event_to_image(event)
         if point is None:
+            if event.button() == LEFT_BUTTON and self.roi_mode == "select":
+                self.roiSelectionCleared.emit()
+                event.accept()
+                return
             super().mousePressEvent(event)
             return
 
         if event.button() == RIGHT_BUTTON:
-            self._polygon_points.clear()
+            self._drag_start = None
+            self._freehand_points.clear()
             self._remove_roi_item()
             return
 
@@ -2822,9 +3244,10 @@ class MovieGraphicsView(QGraphicsView):
             self._pick_roi_at(point)
             return
 
-        if self.roi_mode == "polygon":
-            self._polygon_points.append(point)
-            self._update_polygon_preview()
+        if self.roi_mode in {"freehand", "eraser"}:
+            self._freehand_points = [point]
+            self._remove_roi_item()
+            self._update_freehand_preview()
             return
 
         self._drag_start = point
@@ -2836,6 +3259,16 @@ class MovieGraphicsView(QGraphicsView):
         self.scene.addItem(self.roi_item)
 
     def mouseMoveEvent(self, event) -> None:
+        if self.roi_mode in {"freehand", "eraser"} and self._freehand_points:
+            point = self._map_event_to_image(event)
+            if point is None:
+                return
+            last = self._freehand_points[-1]
+            if math.hypot(point.x() - last.x(), point.y() - last.y()) >= 0.35:
+                self._freehand_points.append(point)
+                self._update_freehand_preview()
+            return
+
         if self._drag_start is None or self.roi_mode != "rectangle":
             super().mouseMoveEvent(event)
             return
@@ -2848,6 +3281,15 @@ class MovieGraphicsView(QGraphicsView):
             self.roi_item.setRect(rect)
 
     def mouseReleaseEvent(self, event) -> None:
+        if self.roi_mode in {"freehand", "eraser"} and self._freehand_points:
+            point = self._map_event_to_image(event)
+            if point is not None:
+                last = self._freehand_points[-1]
+                if math.hypot(point.x() - last.x(), point.y() - last.y()) >= 0.01:
+                    self._freehand_points.append(point)
+            self._finalize_freehand()
+            return
+
         if self._drag_start is None or self.roi_mode != "rectangle":
             super().mouseReleaseEvent(event)
             return
@@ -2856,10 +3298,12 @@ class MovieGraphicsView(QGraphicsView):
         start = self._drag_start
         self._drag_start = None
         if point is None or self.frame_shape is None:
+            self._remove_roi_item()
             return
 
         rect = QRectF(start, point).normalized()
         if rect.width() < 1 or rect.height() < 1:
+            self._remove_roi_item()
             return
 
         if self.roi_item is not None:
@@ -2870,48 +3314,70 @@ class MovieGraphicsView(QGraphicsView):
             self.frame_shape,
             label=1,
         )
-        self.set_mask_overlay(mask, 1)
+        self._remove_roi_item()
         self.roiChanged.emit(mask, {"type": "rectangle", "rect": rect})
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if self.roi_mode == "polygon" and event.button() == LEFT_BUTTON:
-            self._finalize_polygon()
-            return
         super().mouseDoubleClickEvent(event)
 
-    def _update_polygon_preview(self) -> None:
-        self._remove_roi_item()
-        if not self._polygon_points:
+    def _update_freehand_preview(self) -> None:
+        if not self._freehand_points:
+            self._remove_roi_item()
             return
-        polygon = QPolygonF(self._polygon_points)
-        self.roi_item = QGraphicsPolygonItem(polygon)
-        self.roi_item.setPen(self._make_pen())
-        self.roi_item.setBrush(QBrush(QColor(0, 188, 212, 30)))
-        self.roi_item.setZValue(2)
-        self.scene.addItem(self.roi_item)
+
+        path = QPainterPath(self._freehand_points[0])
+        for point in self._freehand_points[1:]:
+            path.lineTo(point)
+
+        if self.roi_item is None:
+            self.roi_item = QGraphicsPathItem(path)
+            color = "#ef4444" if self.roi_mode == "eraser" else "#00bcd4"
+            self.roi_item.setPen(self._make_pen(self.brush_size, color))
+            self.roi_item.setBrush(QBrush(NO_BRUSH))
+            self.roi_item.setZValue(2)
+            self.scene.addItem(self.roi_item)
+        else:
+            self.roi_item.setPath(path)
 
     def _pick_roi_at(self, point: QPointF) -> None:
         if self.current_mask is None:
+            self.roiSelectionCleared.emit()
             self.statusChanged.emit("No ROI mask is loaded")
             return
         x = int(point.x())
         y = int(point.y())
         if y < 0 or y >= self.current_mask.shape[0] or x < 0 or x >= self.current_mask.shape[1]:
+            self.roiSelectionCleared.emit()
             return
         roi_id = int(self.current_mask[y, x])
         if roi_id <= 0:
-            self.statusChanged.emit("No ROI under cursor")
+            self.roiSelectionCleared.emit()
+            self.statusChanged.emit("No ROI selected")
             return
         self.roiPicked.emit(roi_id)
 
-    def _finalize_polygon(self) -> None:
-        if self.frame_shape is None or len(self._polygon_points) < 3:
+    def _finalize_freehand(self) -> None:
+        if self.frame_shape is None or not self._freehand_points:
+            self._freehand_points.clear()
+            self._remove_roi_item()
             return
-        points = [(p.x(), p.y()) for p in self._polygon_points]
-        mask = polygon_to_mask(points, self.frame_shape, label=1)
-        self.set_mask_overlay(mask, 1)
-        self.roiChanged.emit(mask, {"type": "polygon", "points": points})
-        self._polygon_points.clear()
+
+        points = [(p.x(), p.y()) for p in self._freehand_points]
+        mask = freehand_to_mask(
+            points,
+            self.frame_shape,
+            radius=max(0.5, float(self.brush_size) / 2.0),
+            label=1,
+            fill_closed=self.roi_mode == "freehand",
+        )
+        edit_type = "eraser" if self.roi_mode == "eraser" else "freehand"
+        self._freehand_points.clear()
+        if not np.any(mask > 0):
+            self._remove_roi_item()
+            return
+
+        self._remove_roi_item()
+        self.roiChanged.emit(mask, {"type": edit_type, "points": points, "brush_size": self.brush_size})
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -3313,7 +3779,9 @@ class MainWindow(QMainWindow):
             method: _advanced_defaults(method) for method in ADVANCED_OPTION_SPECS
         }
         self.pending_extraction_keys: dict[int, tuple] = {}
+        self.pending_extraction_roi_ids: list[int] = []
         self.roi_mask_version = 0
+        self.roi_mask_history: list[tuple[Optional[np.ndarray], Optional[int]]] = []
         self.trace_view_mode = "trace"
         self.trace_display_scope = "all"
         self.inspector_view_mode = "trace"
@@ -3331,6 +3799,8 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self._advance_frame)
 
         self._build_ui()
+        self.roi_undo_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
+        self.roi_clear_tools_shortcut = QShortcut(QKeySequence("Esc"), self)
         self._resize_to_available_screen()
         self._connect_signals()
         self._set_controls_enabled(False)
@@ -3404,9 +3874,9 @@ class MainWindow(QMainWindow):
         return center
 
     def _build_movie_view_card(self) -> QFrame:
-        card = _styled_frame("viewerCard")
+        card = MovieCardFrame()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(1, 1, 1, 1)
         card_layout.setSpacing(0)
 
         toolbar = QWidget()
@@ -3446,8 +3916,48 @@ class MainWindow(QMainWindow):
         self.movie_view = MovieGraphicsView()
         self.movie_view.setMinimumHeight(MOVIE_VIEW_MIN_HEIGHT)
         self.movie_view.setSizePolicy(SIZE_EXPANDING, SIZE_IGNORED)
-        card_layout.addWidget(self.movie_view, 1)
+        movie_stage = MovieStage()
+        self.movie_stage = movie_stage
+        movie_stage.setObjectName("movieStage")
+        movie_stage_layout = QGridLayout(movie_stage)
+        movie_stage_layout.setContentsMargins(0, 0, 0, 0)
+        movie_stage_layout.setSpacing(0)
+        movie_stage_layout.addWidget(self.movie_view, 0, 0)
+        self.roi_tool_island = self._build_roi_tool_island(movie_stage)
+        self.roi_tool_island.raise_()
+        movie_stage.resized.connect(self.roi_tool_island.reposition_to_dock)
+        QTimer.singleShot(0, self.roi_tool_island.reposition_to_dock)
+        card_layout.addWidget(movie_stage, 1)
+        card.raise_border()
         return card
+
+    def _build_roi_tool_island(self, parent: QWidget) -> RoiToolIsland:
+        island = RoiToolIsland(parent)
+        self.roi_tool_buttons: dict[str, QPushButton] = {}
+        for mode, icon, tooltip in (
+            ("freehand", BRUSH_SVG, "Draw ROI with brush"),
+            ("rectangle", RECTANGLE_ROI_SVG, "Draw rectangular ROI"),
+            ("eraser", ERASER_SVG, "Erase touched ROI"),
+        ):
+            button = _make_roi_tool_button(icon, tooltip)
+            self.roi_tool_buttons[mode] = button
+            island.add_tool_widget(button)
+
+        self.roi_brush_size_spin = RoiBrushSizeSpinBox()
+        self.roi_brush_size_spin.setRange(1, 64)
+        self.roi_brush_size_spin.setValue(5)
+        self.roi_brush_size_spin.setSuffix(" px")
+        self.roi_brush_size_spin.setFixedWidth(70)
+        self.roi_brush_size_spin.setToolTip("Brush size")
+        _show_spinbox_buttons(self.roi_brush_size_spin)
+        self.roi_brush_size_spin.set_vertical_display(island.dock_side in {"left", "right"})
+        island.add_tool_widget(self.roi_brush_size_spin)
+
+        self.roi_undo_button = _make_roi_tool_button(UNDO_SVG, "Undo ROI edit (Ctrl+Z)", checkable=False)
+        self.roi_undo_button.setEnabled(False)
+        island.add_tool_widget(self.roi_undo_button)
+        island.reposition_to_dock()
+        return island
 
     def _build_trace_window(self) -> TraceWindow:
         self.trace_canvas = TraceCanvas()
@@ -3681,14 +4191,14 @@ class MainWindow(QMainWindow):
         fit_index = self.fit_mode_combo.findText("Fit")
         if fit_index >= 0 and self.fit_mode_combo.currentIndex() != fit_index:
             self.fit_mode_combo.setCurrentIndex(fit_index)
-        self.movie_view.zoom_percent = 100.0
         self.movie_view.set_fit_mode("Fit")
         self._refresh_zoom_label()
 
     def _set_movie_fit_mode(self, mode: str) -> None:
-        self.movie_view.set_fit_mode(mode)
-        if mode.strip().lower() != "actual":
-            self.movie_view.zoom_percent = 100.0
+        if mode.strip().lower() == "actual":
+            self.movie_view.set_actual_size()
+        else:
+            self.movie_view.set_fit_mode(mode)
         self._refresh_zoom_label()
 
     def _set_movie_actual_size(self) -> None:
@@ -3701,13 +4211,25 @@ class MainWindow(QMainWindow):
     def _zoom_movie_view(self, factor: float) -> None:
         index = self.fit_mode_combo.findText("Actual")
         if index >= 0 and self.fit_mode_combo.currentIndex() != index:
+            self.fit_mode_combo.blockSignals(True)
             self.fit_mode_combo.setCurrentIndex(index)
+            self.fit_mode_combo.blockSignals(False)
         self.movie_view.zoom_by(factor)
         self._refresh_zoom_label()
 
-    def _refresh_zoom_label(self) -> None:
+    def _refresh_zoom_label(self, zoom_percent: Optional[float] = None) -> None:
         if hasattr(self, "zoom_100_button"):
             self.zoom_100_button.setText(f"{int(round(self.movie_view.zoom_percent))}%")
+
+    def _set_roi_tool_mode(self, mode: str) -> None:
+        mode = mode.strip().lower()
+        if mode not in {"select", "freehand", "rectangle", "eraser"}:
+            mode = "select"
+        self.movie_view.set_roi_mode(mode)
+        for tool_mode, button in self.roi_tool_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(tool_mode == mode)
+            button.blockSignals(False)
 
     def _set_movie_display_mode(self, mode: str) -> None:
         if self.movie is not None:
@@ -4303,7 +4825,16 @@ class MainWindow(QMainWindow):
         self.speed_ratio_spin.valueChanged.connect(self._update_timer_interval)
         self.channel_spin.valueChanged.connect(lambda _: self.show_frame(self.frame_slider.value()))
         self.movie_view.roiPicked.connect(self._select_roi)
+        self.movie_view.roiSelectionCleared.connect(self._clear_roi_selection)
+        self.movie_view.roiChanged.connect(self._add_drawn_roi)
         self.movie_view.statusChanged.connect(self.extraction_status_label.setText)
+        self.movie_view.zoomChanged.connect(self._refresh_zoom_label)
+        for mode, button in self.roi_tool_buttons.items():
+            button.clicked.connect(lambda checked=False, mode=mode: self._set_roi_tool_mode(mode if checked else "select"))
+        self.roi_brush_size_spin.valueChanged.connect(self.movie_view.set_brush_size)
+        self.roi_undo_button.clicked.connect(self._undo_roi_mask_edit)
+        self.roi_undo_shortcut.activated.connect(self._undo_roi_mask_edit)
+        self.roi_clear_tools_shortcut.activated.connect(lambda: self._set_roi_tool_mode("select"))
         self.browse_cellpose_button.clicked.connect(self.browse_cellpose_model)
         self.load_mask_button.clicked.connect(self.load_mask_dialog)
         self.run_cellpose_button.clicked.connect(self.run_cellpose_segmentation)
@@ -4342,6 +4873,7 @@ class MainWindow(QMainWindow):
             self.zoom_100_button,
             self.zoom_in_button,
             self.reset_view_button,
+            self.roi_brush_size_spin,
             self.run_cellpose_button,
             self.method_combo,
             self.device_combo,
@@ -4350,10 +4882,29 @@ class MainWindow(QMainWindow):
             self.extract_all_button,
         ):
             widget.setEnabled(enabled)
+        for button in self.roi_tool_buttons.values():
+            button.setEnabled(enabled)
+        self._update_roi_undo_button()
         self._update_top_actions()
 
     def _has_extractable_rois(self) -> bool:
         return self.roi_mask is not None and available_roi_ids(self.roi_mask).size > 0
+
+    def _update_roi_undo_button(self) -> None:
+        if not hasattr(self, "roi_undo_button"):
+            return
+        self.roi_undo_button.setEnabled(self.movie_path is not None and bool(self.roi_mask_history))
+
+    def _clear_roi_mask_history(self) -> None:
+        self.roi_mask_history.clear()
+        self._update_roi_undo_button()
+
+    def _push_roi_mask_history(self) -> None:
+        snapshot = None if self.roi_mask is None else np.asarray(self.roi_mask, dtype=np.int32).copy()
+        self.roi_mask_history.append((snapshot, self.selected_roi_id))
+        if len(self.roi_mask_history) > ROI_MASK_HISTORY_LIMIT:
+            del self.roi_mask_history[0 : len(self.roi_mask_history) - ROI_MASK_HISTORY_LIMIT]
+        self._update_roi_undo_button()
 
     def _set_extraction_controls_enabled(self, enabled: bool) -> None:
         enabled = enabled and self.movie_path is not None and self._has_extractable_rois()
@@ -4398,7 +4949,9 @@ class MainWindow(QMainWindow):
         self._update_trace_scope_buttons()
         self.trace_cache.clear()
         self.pending_extraction_keys = {}
+        self.pending_extraction_roi_ids = []
         self.roi_mask_version = 0
+        self._clear_roi_mask_history()
 
         self.frame_slider.blockSignals(True)
         self.frame_slider.setRange(0, 0)
@@ -4419,6 +4972,7 @@ class MainWindow(QMainWindow):
         self.extraction_progress.setValue(0)
         self.extraction_status_label.setText("Idle")
         self.labels_toggle_button.setChecked(True)
+        self._set_roi_tool_mode("select")
         self.save_all_traces_button.setEnabled(False)
         self.trace_canvas.plot_empty()
         self._sync_trace_window_controls()
@@ -4532,6 +5086,7 @@ class MainWindow(QMainWindow):
             self._update_trace_scope_buttons()
             self.trace_cache.clear()
             self.pending_extraction_keys = {}
+            self.pending_extraction_roi_ids = []
             self.roi_mask_version = 0
             self.save_all_traces_button.setEnabled(False)
             self.extraction_progress.hide()
@@ -4692,6 +5247,7 @@ class MainWindow(QMainWindow):
         try:
             mask = load_mask_file(path)
             ids = self._apply_roi_mask(mask)
+            self._clear_roi_mask_history()
         except Exception as exc:
             QMessageBox.critical(self, "Load Mask Failed", str(exc))
             return
@@ -4758,8 +5314,8 @@ class MainWindow(QMainWindow):
         self._set_last_batch_results([])
         self.trace_display_scope = "all"
         self._update_trace_scope_buttons()
-        self.trace_cache.clear()
         self.pending_extraction_keys = {}
+        self.pending_extraction_roi_ids = []
         self.save_all_traces_button.setEnabled(False)
         self.extraction_progress.hide()
         self.extraction_progress.setRange(0, 100)
@@ -4780,17 +5336,118 @@ class MainWindow(QMainWindow):
         if ids.size == 0:
             raise ValueError("ROI mask does not contain any positive labels.")
 
-        self.roi_mask = mask
+        return self._set_roi_mask_state(mask)
+
+    def _set_roi_mask_state(
+        self,
+        mask: Optional[np.ndarray],
+        *,
+        selected_roi_id: Optional[int] = None,
+    ) -> np.ndarray:
+        ids = np.array([], dtype=np.int64)
+        state_mask: Optional[np.ndarray] = None
+        if mask is None:
+            state_mask = None
+        else:
+            mask = np.asarray(mask, dtype=np.int32)
+            if self.movie is not None:
+                ensure_shape_matches(mask, tuple(self.movie.shape[1:]))
+            ids = available_roi_ids(mask)
+            state_mask = mask if ids.size else None
+
+        self.roi_mask = state_mask
+        if self.roi_mask is None:
+            ids = np.array([], dtype=np.int64)
+
+        selected_roi_id = int(selected_roi_id) if selected_roi_id is not None else None
         self.roi_mask_version += 1
         self._clear_trace_state_for_new_roi_mask()
+        self._prune_trace_cache_for_current_roi_mask()
+        if (
+            self.roi_mask is not None
+            and selected_roi_id is not None
+            and np.any(self.roi_mask == int(selected_roi_id))
+        ):
+            self.selected_roi_id = int(selected_roi_id)
+            self.selected_roi_label.setText(f"Selected ROI: {int(selected_roi_id)}")
         self._update_roi_overlay()
         self._set_extraction_controls_enabled(True)
         self._refresh_roi_inspector()
+        self._update_roi_undo_button()
         return ids
+
+    def _undo_roi_mask_edit(self) -> None:
+        if not self.roi_mask_history:
+            self.segmentation_status_label.setText("No ROI edit to undo")
+            self.segmentation_status_label.show()
+            self._update_roi_undo_button()
+            return
+
+        snapshot, selected_roi_id = self.roi_mask_history.pop()
+        ids = self._set_roi_mask_state(snapshot, selected_roi_id=selected_roi_id)
+        self._update_roi_undo_button()
+        if ids.size:
+            self.segmentation_status_label.setText("Undid ROI edit")
+        else:
+            self.segmentation_status_label.setText("Undid ROI edit; no ROI mask is active")
+        self.segmentation_status_label.show()
+
+    def _add_drawn_roi(self, mask: np.ndarray, metadata: dict) -> None:
+        if self.movie is None:
+            return
+
+        drawn = np.asarray(mask, dtype=np.int32)
+        ensure_shape_matches(drawn, tuple(self.movie.shape[1:]))
+        pixels = drawn > 0
+        if not np.any(pixels):
+            return
+
+        tool = str((metadata or {}).get("type", "drawn")).strip().lower()
+        if tool == "eraser":
+            if self.roi_mask is None:
+                self.segmentation_status_label.setText("No ROI mask to erase")
+                self.segmentation_status_label.show()
+                return
+
+            combined = np.asarray(self.roi_mask, dtype=np.int32).copy()
+            touched_roi_ids = np.unique(combined[pixels & (combined > 0)])
+            touched_roi_ids = touched_roi_ids[touched_roi_ids > 0]
+            if touched_roi_ids.size == 0:
+                self.segmentation_status_label.setText("Eraser did not touch any ROI")
+                self.segmentation_status_label.show()
+                return
+
+            self._push_roi_mask_history()
+            selected_roi_id = self.selected_roi_id
+            combined[np.isin(combined, touched_roi_ids)] = 0
+            ids = self._set_roi_mask_state(combined, selected_roi_id=selected_roi_id)
+            if ids.size:
+                erased_label = "ROI" if touched_roi_ids.size == 1 else "ROIs"
+                self.segmentation_status_label.setText(f"Erased {int(touched_roi_ids.size)} {erased_label}")
+            else:
+                self.segmentation_status_label.setText("Erased all ROIs")
+            self.segmentation_status_label.show()
+            return
+
+        if self.roi_mask is None:
+            combined = np.zeros_like(drawn, dtype=np.int32)
+            next_roi_id = 1
+        else:
+            combined = np.asarray(self.roi_mask, dtype=np.int32).copy()
+            ids = available_roi_ids(combined)
+            next_roi_id = int(ids.max()) + 1 if ids.size else 1
+
+        self._push_roi_mask_history()
+        combined[pixels] = int(next_roi_id)
+        self._apply_roi_mask(combined)
+        self._select_roi(int(next_roi_id))
+        self.segmentation_status_label.setText(f"Drew ROI {int(next_roi_id)} with {tool.replace('_', ' ')}")
+        self.segmentation_status_label.show()
 
     def _segmentation_finished(self, result: dict) -> None:
         mask = np.asarray(result["mask"], dtype=np.int32)
         ids = self._apply_roi_mask(mask)
+        self._clear_roi_mask_history()
         where_saved = f", saved to {result['save_dir']}" if result.get("save_dir") else ""
         self.segmentation_progress.setRange(0, 100)
         self.segmentation_progress.setValue(100)
@@ -4825,6 +5482,17 @@ class MainWindow(QMainWindow):
             self.extraction_status_label.setText(f"No extracted trace available for ROI {int(roi_id)}")
             return
         self.extraction_status_label.setText(f"Selected ROI {int(roi_id)}")
+
+    def _clear_roi_selection(self) -> None:
+        if self.selected_roi_id is None:
+            return
+        self.selected_roi_id = None
+        self.selected_roi_label.setText("Selected ROI: none")
+        self._update_roi_overlay()
+        self._refresh_roi_inspector()
+        if self.trace_display_scope == "selected":
+            self._refresh_trace_display_for_scope()
+        self.extraction_status_label.setText("No ROI selected")
 
     def _trace_roi_double_clicked(self, roi_id: int) -> None:
         self._select_roi(int(roi_id))
@@ -4984,18 +5652,75 @@ class MainWindow(QMainWindow):
             return int(self.channel_spin.value())
         return None
 
+    def _roi_mask_fingerprint(self, roi_id: int) -> Optional[tuple]:
+        if self.roi_mask is None:
+            return None
+
+        labels = np.asarray(self.roi_mask)
+        roi_id = int(roi_id)
+        if labels.ndim == 3:
+            plane_index = roi_id - 1
+            if plane_index < 0 or plane_index >= int(labels.shape[0]):
+                return None
+            pixels = np.asarray(labels[plane_index] != 0, dtype=np.bool_)
+        else:
+            pixels = np.asarray(labels == roi_id, dtype=np.bool_)
+
+        if pixels.ndim != 2 or not np.any(pixels):
+            return None
+
+        pixels = np.ascontiguousarray(pixels)
+        packed = np.packbits(pixels.reshape(-1))
+        digest = hashlib.blake2b(digest_size=16)
+        digest.update(np.asarray(pixels.shape, dtype=np.int64).tobytes())
+        digest.update(packed.tobytes())
+        return (
+            tuple(int(value) for value in pixels.shape),
+            int(np.count_nonzero(pixels)),
+            digest.hexdigest(),
+        )
+
+    def _current_roi_cache_scopes(self) -> set[tuple]:
+        if self.movie_path is None or self.roi_mask is None:
+            return set()
+
+        dataset = self.dataset_edit.text().strip() or "movie"
+        scopes = set()
+        for roi_id in available_roi_ids(self.roi_mask):
+            fingerprint = self._roi_mask_fingerprint(int(roi_id))
+            if fingerprint is not None:
+                scopes.add((self.movie_path, dataset, int(roi_id), fingerprint))
+        return scopes
+
+    def _prune_trace_cache_for_current_roi_mask(self) -> None:
+        if self.movie_path is None:
+            return
+
+        dataset = self.dataset_edit.text().strip() or "movie"
+        valid_scopes = self._current_roi_cache_scopes()
+        for key in list(self.trace_cache):
+            if len(key) < 4:
+                continue
+            if key[0] == self.movie_path and key[1] == dataset and key[:4] not in valid_scopes:
+                del self.trace_cache[key]
+
     def _current_extraction_key(self, roi_id: Optional[int] = None) -> Optional[tuple]:
         if roi_id is None:
             roi_id = self.selected_roi_id
         if self.movie_path is None or roi_id is None:
             return None
 
+        roi_id = int(roi_id)
+        roi_fingerprint = self._roi_mask_fingerprint(roi_id)
+        if roi_fingerprint is None:
+            return None
+
         method = self.method_combo.currentText()
         key = (
             self.movie_path,
             self.dataset_edit.text().strip() or "movie",
-            int(self.roi_mask_version),
-            int(roi_id),
+            roi_id,
+            roi_fingerprint,
             method,
             self._current_extraction_channel(),
             self._selected_device(),
@@ -5037,12 +5762,21 @@ class MainWindow(QMainWindow):
     def _start_extraction(self, roi_ids: list[int], *, all_rois: bool) -> None:
         self.timer.stop()
         self._set_playback_button_active(False)
+        requested_roi_ids = [int(roi_id) for roi_id in roi_ids]
         cache_keys = {
-            int(roi_id): self._current_extraction_key(int(roi_id))
-            for roi_id in roi_ids
+            roi_id: self._current_extraction_key(roi_id)
+            for roi_id in requested_roi_ids
         }
-        if all(cache_key is not None and cache_key in self.trace_cache for cache_key in cache_keys.values()):
-            cached_results = [self.trace_cache[cache_keys[int(roi_id)]] for roi_id in roi_ids]
+        cached_results = []
+        missing_roi_ids = []
+        for roi_id in requested_roi_ids:
+            cache_key = cache_keys.get(roi_id)
+            if cache_key is not None and cache_key in self.trace_cache:
+                cached_results.append(self.trace_cache[cache_key])
+            else:
+                missing_roi_ids.append(roi_id)
+
+        if not missing_roi_ids:
             self._set_last_batch_results(cached_results if all_rois else [])
             self.save_all_traces_button.setEnabled(all_rois)
             if all_rois:
@@ -5065,19 +5799,27 @@ class MainWindow(QMainWindow):
         self.extraction_progress.setRange(0, 100)
         self.extraction_progress.setValue(0)
         self.extraction_progress.show()
-        self.extraction_status_label.setText("Starting extraction")
+        if cached_results:
+            self.extraction_status_label.setText(
+                f"Starting extraction for {len(missing_roi_ids)} ROI(s); reusing {len(cached_results)} cached"
+            )
+        else:
+            self.extraction_status_label.setText("Starting extraction")
 
         channel = self._current_extraction_channel()
         self.pending_extraction_keys = {
-            roi_id: cache_key for roi_id, cache_key in cache_keys.items() if cache_key is not None
+            roi_id: cache_keys[roi_id]
+            for roi_id in missing_roi_ids
+            if cache_keys.get(roi_id) is not None
         }
+        self.pending_extraction_roi_ids = requested_roi_ids
         self.worker_thread = QThread(self)
         self.worker = ExtractionWorker(
             movie_path=self.movie_path,
             dataset=self.dataset_edit.text().strip() or "movie",
             method=method,
             roi_mask=self.roi_mask.copy(),
-            roi_ids=roi_ids,
+            roi_ids=missing_roi_ids,
             channel=channel,
             frame_rate=self.movie_frame_rate_spin.value(),
             device=self._selected_device(),
@@ -5207,6 +5949,8 @@ class MainWindow(QMainWindow):
 
     def _extraction_finished(self, payload: dict) -> None:
         results = list(payload.get("results", [])) if "results" in payload else [payload]
+        extracted_count = len(results)
+        requested_roi_ids = list(self.pending_extraction_roi_ids)
         for result in results:
             metrics = result.get("metrics") or {}
             roi_id = int(metrics.get("roi", -1))
@@ -5214,37 +5958,55 @@ class MainWindow(QMainWindow):
             if cache_key is not None:
                 self._remove_stale_trace_cache_entries(cache_key)
                 self.trace_cache[cache_key] = result
+
+        all_rois = bool(payload.get("all_rois"))
+        display_results = results
+        if all_rois and requested_roi_ids:
+            cached_results = self._cached_results_for_roi_ids(requested_roi_ids)
+            if cached_results:
+                display_results = cached_results
+
         self.pending_extraction_keys = {}
-        self._set_last_batch_results(results if payload.get("all_rois") else [])
+        self.pending_extraction_roi_ids = []
+        self._set_last_batch_results(display_results if all_rois else [])
         self.save_all_traces_button.setEnabled(bool(self.last_batch_results))
         self.extraction_progress.setRange(0, 100)
         self.extraction_progress.setValue(100)
-        if not results:
+        if not display_results:
             self.extraction_status_label.setText("No traces returned")
             return
-        if payload.get("all_rois"):
+        if all_rois:
             self.trace_display_scope = "all"
-        result = self._cached_combined_trace_result(results) if payload.get("all_rois") else (self._result_for_selected_roi(results) or results[0])
-        self._show_trace_result(result, status=f"Extracted {len(results)} ROI trace(s)")
+        result = self._cached_combined_trace_result(display_results) if all_rois else (self._result_for_selected_roi(display_results) or display_results[0])
+        reused_count = max(0, len(display_results) - extracted_count) if all_rois else 0
+        if reused_count:
+            status = f"Extracted {extracted_count} ROI trace(s), reused {reused_count} cached"
+        else:
+            status = f"Extracted {len(display_results)} ROI trace(s)"
+        self._show_trace_result(result, status=status)
 
     def _extraction_failed(self, message: str) -> None:
         self.pending_extraction_keys = {}
+        self.pending_extraction_roi_ids = []
         self.extraction_progress.setRange(0, 100)
         self.extraction_progress.setValue(0)
         self.extraction_status_label.setText("Extraction failed")
         self._refresh_roi_inspector()
         QMessageBox.critical(self, "Extraction Failed", message)
 
-    def _cached_results_for_all_rois(self) -> list[dict]:
-        if self.roi_mask is None:
-            return []
+    def _cached_results_for_roi_ids(self, roi_ids: list[int]) -> list[dict]:
         results = []
-        for roi_id in available_roi_ids(self.roi_mask):
+        for roi_id in roi_ids:
             cache_key = self._current_extraction_key(int(roi_id))
             if cache_key is None or cache_key not in self.trace_cache:
                 return []
             results.append(self.trace_cache[cache_key])
         return results
+
+    def _cached_results_for_all_rois(self) -> list[dict]:
+        if self.roi_mask is None:
+            return []
+        return self._cached_results_for_roi_ids([int(roi_id) for roi_id in available_roi_ids(self.roi_mask)])
 
     @staticmethod
     def _csv_columns_for_results(results: list[dict]) -> tuple[np.ndarray, list[str]]:
