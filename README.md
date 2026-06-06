@@ -11,6 +11,17 @@ The package currently provides:
 - Cellpose-based segmentation support
 - ALI and SpikePursuit signal extraction
 
+# Performance
+
+The performance test shown below was run on a 512x400 movie acquired at
+1000 fps. The test machine used an AMD Ryzen 7 5800X CPU and an NVIDIA
+GeForce RTX 2080 Ti GPU. Runtime will vary with movie length, selected
+processing steps, extraction method, storage speed, and CUDA availability.
+
+<p align="center">
+  <img src="./media/2026-06-07%20001508.png" width="800" alt="App Screenshot">
+</p>
+
 ## Installation
 
 ```bash
