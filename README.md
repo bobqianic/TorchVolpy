@@ -11,7 +11,7 @@ The package currently provides:
 - Cellpose-based segmentation support
 - ALI and SpikePursuit signal extraction
 
-# Performance
+## Performance
 
 The performance test shown below was run on a 512x400 movie acquired at
 1000 fps. The test machine used an AMD Ryzen 7 5800X CPU and an NVIDIA
