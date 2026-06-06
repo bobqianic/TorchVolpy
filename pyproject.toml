@@ -7,6 +7,7 @@ name = "torch-volpy"
 version = "0.1.0"
 description = "PyTorch tools for voltage imaging movie processing and signal extraction."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 keywords = [
     "voltage-imaging",

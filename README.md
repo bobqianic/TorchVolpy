@@ -69,11 +69,10 @@ motion-correction phases.
   <img src="./media/2026-06-06%20232535.png" width="800" alt="App Screenshot">
 </p>
 
-## Build And Publish
+## How To Build
 
 ```bash
 python -m build
-python -m twine upload dist/*
 ```
 
-Before publishing publicly, add a `LICENSE` file and matching license metadata to `pyproject.toml`.
+The build artifacts are written to `dist/`.
