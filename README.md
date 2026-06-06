@@ -65,6 +65,9 @@ motion-correction phases.
 <p align="center">
   <img src="./media/2026-06-06%20231838.png" width="800" alt="App Screenshot">
 </p>
+<p align="center">
+  <img src="./media/2026-06-06%20232535.png" width="800" alt="App Screenshot">
+</p>
 
 ## Build And Publish
 
