@@ -1,0 +1,20 @@
+include README.md
+include pyproject.toml
+
+prune .idea
+prune .venv
+prune _test
+prune build
+prune dist
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.pyo
+global-exclude *.h5
+global-exclude *.hdf5
+global-exclude *.tif
+global-exclude *.tiff
+global-exclude *.pt
+global-exclude *.npy
+global-exclude *.mat
+global-exclude *.png

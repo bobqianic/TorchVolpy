@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torch-volpy"
+version = "0.1.0"
+description = "PyTorch tools for voltage imaging movie processing and signal extraction."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [
+    "voltage-imaging",
+    "calcium-imaging",
+    "neuroscience",
+    "pytorch",
+    "signal-extraction",
+    "motion-correction",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "cellpose",
+    "h5py>=3.8",
+    "matplotlib>=3.7",
+    "numpy>=1.24",
+    "tifffile>=2023.7.10",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+segmentation = []
+gui = [
+    "PyQt6>=6.6",
+]
+dev = [
+    "build>=1.2",
+    "pytest>=8",
+    "twine>=5",
+]
+
+[project.scripts]
+torch-volpy-gui = "torch_volpy.gui.qt_app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["torch_volpy*"]
+
+[tool.setuptools.package-data]
+torch_volpy = ["gui/assets/*.svg"]
