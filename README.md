@@ -22,6 +22,10 @@ processing steps, extraction method, storage speed, and CUDA availability.
   <img src="./media/2026-06-07%20001508.png" width="800" alt="App Screenshot">
 </p>
 
+<p align="center">
+  <img src="./media/2026-06-08%20000252.png" width="800" alt="App Screenshot">
+</p>
+
 ## Installation
 
 ```bash
