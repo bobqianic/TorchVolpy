@@ -10,6 +10,7 @@ from ..util import IJAB
 
 
 class Cellpose:
+    """Wrapper around CellposeModel for torch-volpy segmentation workflows."""
     def __init__(
         self,
         model_path: Union[str, Path],

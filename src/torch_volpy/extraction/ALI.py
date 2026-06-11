@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 @dataclass
 class ALIResult:
+    """Container for intermediate and final outputs from the ALI pipeline."""
     data: torch.Tensor
     df: torch.Tensor
     f0: torch.Tensor
@@ -106,9 +107,11 @@ class ALI:
                 raise RuntimeError(f"device={self.device_override} requested, but CUDA is not available.")
 
     def __call__(self, data: Any) -> ALIResult:
+        """Run the ALI pipeline on an input movie crop."""
         return self.forward(data)
 
     def to(self, device: str) -> "ALI":
+        """Set the default torch device used by subsequent ALI runs."""
         self.device_override = torch.device(device)
         if self.device_override.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError(f"device={self.device_override} requested, but CUDA is not available.")
@@ -662,6 +665,7 @@ class ALI:
 
     @torch.inference_mode()
     def forward(self, data: Any) -> ALIResult:
+        """Compute ALI spike localization, clusters, footprints, and traces."""
         work_device = self._resolve_device(data)
         data = self._as_tensor(data, device=work_device)
 

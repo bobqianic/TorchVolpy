@@ -205,6 +205,7 @@ def collect_dataclass_fields(
     node: ast.ClassDef,
     *,
     class_qname: str,
+    class_public: bool,
     module: str,
     path: Path,
     root: Path,
@@ -216,17 +217,22 @@ def collect_dataclass_fields(
     for child in node.body:
         if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
             name = child.target.id
+            annotation = unparse(child.annotation)
+            field_doc = f"Dataclass field `{name}`."
+            if annotation:
+                field_doc += f" Type: `{annotation}`."
             item = item_base(
                 kind="field",
                 name=name,
                 qualified_name=f"{class_qname}.{name}",
                 module=module,
                 parent=class_qname,
-                signature=f": {unparse(child.annotation)}",
+                signature=f": {annotation}",
+                docstring=field_doc,
                 source=node_source(child, path, root),
-                public=is_public_name(name),
+                public=class_public and is_public_name(name),
             )
-            item["annotation"] = unparse(child.annotation)
+            item["annotation"] = annotation
             if child.value is not None:
                 item["default"] = unparse(child.value)
             item["searchText"] = make_search_text(item).lower()
@@ -266,6 +272,7 @@ def collect_class_items(
         collect_dataclass_fields(
             node,
             class_qname=qname,
+            class_public=public,
             module=module,
             path=path,
             root=root,

@@ -131,6 +131,7 @@ class Template:
 
     @torch.inference_mode()
     def estimate_min(self) -> float:
+        """Estimate or return the movie minimum used for template offsetting."""
         if self._user_min_value is not None:
             self.min_value = float(self._user_min_value)
             return self.min_value
@@ -179,6 +180,7 @@ class Template:
 
     @torch.inference_mode()
     def compute_binmedian(self) -> torch.Tensor:
+        """Compute the raw bin-median template before brightness offsetting."""
         T = int(self.movie.num_frames)
         if T == 0:
             raise ValueError("Movie has no frames")
@@ -251,6 +253,7 @@ class Template:
 
     @torch.inference_mode()
     def build(self) -> torch.Tensor:
+        """Build and return the final motion template tensor."""
         min_value = self.estimate_min()
         raw = self.compute_binmedian()  # CPU
 
@@ -274,4 +277,5 @@ class Template:
         return template
 
     def __call__(self) -> torch.Tensor:
+        """Build and return the final motion template tensor."""
         return self.build()

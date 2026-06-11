@@ -16,6 +16,7 @@ _SIGNAL_FILTER_METHODS = {"sos32"}
 
 @dataclass
 class SpikePursuitResult:
+    """Container for one fitted SpikePursuit ROI result."""
     roi_id: int
     t: torch.Tensor
     ts: torch.Tensor
@@ -38,6 +39,7 @@ class SpikePursuitResult:
 
 @dataclass
 class SpikePursuitPreparedROI:
+    """Reusable prepared state for fitting one SpikePursuit ROI."""
     roi_id: int
     t0: torch.Tensor
     weights0: torch.Tensor
@@ -225,6 +227,7 @@ class Spikepursuit:
         batch_patch_bytes: Optional[int] = None,
         max_rois_per_batch: Optional[int] = None,
     ) -> Dict[int, SpikePursuitResult]:
+        """Fit SpikePursuit traces for the selected ROIs and return them by ROI id."""
         out: Dict[int, SpikePursuitResult] = {}
         for result in self.iter_fit(
             roi_ids,
@@ -380,6 +383,7 @@ class Spikepursuit:
         roi_id: int,
         weights_init: Optional[torch.Tensor] = None,
     ) -> SpikePursuitResult:
+        """Prepare and fit a single ROI."""
         prepared = self.prepare_roi(roi_id, weights_init=weights_init)
         return self.fit_prepared_roi(prepared)
 
@@ -389,6 +393,7 @@ class Spikepursuit:
         roi_id: int,
         weights_init: Optional[torch.Tensor] = None,
     ) -> SpikePursuitPreparedROI:
+        """Build reusable background, predictor, and initial trace state for one ROI."""
         if int(roi_id) not in self._roi_id_set:
             raise KeyError(f"ROI id {roi_id} not found in roi_mask.")
 
@@ -483,6 +488,7 @@ class Spikepursuit:
 
     @torch.inference_mode()
     def fit_prepared_roi(self, prepared: SpikePursuitPreparedROI) -> SpikePursuitResult:
+        """Fit a previously prepared ROI state into a SpikePursuit result."""
         t0 = prepared.t0
         weights0 = prepared.weights0
         bw = prepared.bw
@@ -1216,6 +1222,7 @@ class Spikepursuit:
         threshold: float = 2.0,
         do_plot: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool, float]:
+        """Denoise a trace and detect spikes with VolPy-compatible thresholding."""
         del do_plot  # plotting omitted in this pure-PyTorch class
 
         data = self._volpy_signal_filter_1d(data, hp_freq, fr, order=5, mode="high")
@@ -1295,6 +1302,7 @@ class Spikepursuit:
         pnorm: float = 0.5,
         min_spikes: int = 5,
     ) -> Tuple[float, float, float, bool]:
+        """Estimate an adaptive spike threshold from candidate peak amplitudes."""
         if pks.numel() == 0:
             return float("inf"), 1.0, 0.0, True
         if pks.numel() == 1:
@@ -1370,6 +1378,7 @@ class Spikepursuit:
         threshold: float = 2.0,
         min_spikes: int = 5,
     ) -> Tuple[float, bool]:
+        """Compute a noise-scaled spike threshold with low-spike fallback."""
         neg = -data[data < 0]
         if neg.numel() == 0:
             std = torch.tensor(1.0, device=self.device, dtype=data.dtype)
@@ -1396,6 +1405,7 @@ class Spikepursuit:
         locs: torch.Tensor,
         window: torch.Tensor,
     ) -> torch.Tensor:
+        """Apply a whitened matched filter around candidate spike locations."""
         n = int(data.numel())
         if n < 4 or locs.numel() == 0:
             return data.clone()
@@ -1922,9 +1932,11 @@ class Spikepursuit:
         mode: str = "high",
         dim: int = 0,
     ) -> torch.Tensor:
+        """Apply the VolPy-compatible Butterworth signal filter."""
         return self._volpy_signal_filter_nd(sg, freq, fr, order=order, mode=mode, dim=dim)
 
     def find_peaks(self, x: torch.Tensor, min_height: Optional[float] = None) -> torch.Tensor:
+        """Return local-maximum sample indices, optionally above a minimum height."""
         x = x.flatten()
         if x.numel() < 3:
             return torch.empty(0, device=self.device, dtype=torch.long)

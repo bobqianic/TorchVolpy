@@ -1164,10 +1164,12 @@ class _ModernSpinBoxMixin:
         )
 
     def paintEvent(self, event) -> None:
+        """Paint the custom spinbox frame and arrow controls."""
         super().paintEvent(event)
         self._draw_modern_spin_buttons()
 
     def mousePressEvent(self, event) -> None:
+        """Track pointer presses on custom arrow controls."""
         point = self._event_point(event)
         button = self._spin_button_at(point)
         if event.button() == LEFT_BUTTON and button is not None:
@@ -1179,6 +1181,7 @@ class _ModernSpinBoxMixin:
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        """Complete a custom arrow press and trigger the step action."""
         if self._pressed_spin_button is not None:
             self._pressed_spin_button = None
             self.update()
@@ -1187,6 +1190,7 @@ class _ModernSpinBoxMixin:
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        """Update hover state for custom arrow controls."""
         point = self._event_point(event)
         hover_button = self._spin_button_at(point)
         if hover_button != self._hover_spin_button:
@@ -1195,6 +1199,7 @@ class _ModernSpinBoxMixin:
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
+        """Clear hover state when the pointer leaves the spinbox."""
         if self._hover_spin_button is not None:
             self._hover_spin_button = None
             self.update()
@@ -1202,27 +1207,32 @@ class _ModernSpinBoxMixin:
 
 
 class ModernSpinBox(_ModernSpinBoxMixin, QSpinBox):
+    """Integer spinbox with custom modern arrow rendering."""
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._init_modern_spinbox()
 
 
 class RoiBrushSizeSpinBox(ModernSpinBox):
+    """Spinbox for controlling ROI brush size in the movie view."""
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._vertical_display = False
 
     def sizeHint(self) -> QSize:
+        """Return the preferred size for the ROI brush spinbox."""
         if self._vertical_display:
             return QSize(32, 88)
         return super().sizeHint()
 
     def minimumSizeHint(self) -> QSize:
+        """Return the minimum usable size for the ROI brush spinbox."""
         if self._vertical_display:
             return QSize(32, 88)
         return super().minimumSizeHint()
 
     def set_vertical_display(self, vertical: bool) -> None:
+        """Switch the brush-size control between vertical and horizontal display."""
         vertical = bool(vertical)
         self._vertical_display = vertical
         self.setMinimumSize(0, 0)
@@ -1252,6 +1262,7 @@ class RoiBrushSizeSpinBox(ModernSpinBox):
         return None
 
     def paintEvent(self, event) -> None:
+        """Paint the ROI brush-size value and custom arrow controls."""
         if not self._vertical_display:
             super().paintEvent(event)
             return
@@ -1305,11 +1316,13 @@ class RoiBrushSizeSpinBox(ModernSpinBox):
         painter.restore()
 
     def resizeEvent(self, event) -> None:
+        """Recalculate arrow hit regions after resizing."""
         super().resizeEvent(event)
         if self._vertical_display:
             self._sync_line_edit_visibility()
 
     def showEvent(self, event) -> None:
+        """Initialize arrow hit regions when the widget is shown."""
         super().showEvent(event)
         self._sync_line_edit_visibility()
         if self._vertical_display:
@@ -1317,6 +1330,7 @@ class RoiBrushSizeSpinBox(ModernSpinBox):
 
 
 class ModernDoubleSpinBox(_ModernSpinBoxMixin, QDoubleSpinBox):
+    """Floating-point spinbox with custom modern arrow rendering."""
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._init_modern_spinbox()
@@ -1419,6 +1433,7 @@ def _make_divider() -> QFrame:
 
 
 class RoiToolIsland(QFrame):
+    """Floating toolbar that hosts ROI drawing and selection controls."""
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("roiToolIsland")
@@ -1442,6 +1457,7 @@ class RoiToolIsland(QFrame):
         self._apply_orientation()
 
     def eventFilter(self, obj, event) -> bool:
+        """Handle drag interactions for the floating ROI tool island."""
         if obj is self or self.isAncestorOf(obj):
             event_type = event.type()
             if event_type == EVENT_MOUSE_BUTTON_PRESS and event.button() == LEFT_BUTTON:
@@ -1483,6 +1499,7 @@ class RoiToolIsland(QFrame):
         return super().eventFilter(obj, event)
 
     def add_tool_widget(self, widget: QWidget) -> None:
+        """Add a tool control to the ROI tool island."""
         self._install_drag_filter(widget)
         self.tool_layout.addWidget(widget)
 
@@ -1492,6 +1509,7 @@ class RoiToolIsland(QFrame):
             child.installEventFilter(self)
 
     def set_dock_side(self, side: str) -> None:
+        """Set the side of the movie stage where the island is docked."""
         side = side if side in {"left", "right", "top", "bottom"} else "left"
         if side != self.dock_side:
             self.dock_side = side
@@ -1499,6 +1517,7 @@ class RoiToolIsland(QFrame):
         self.reposition_to_dock()
 
     def snap_to_nearest_side(self) -> None:
+        """Dock the island to the nearest side of the target widget."""
         parent = self.parentWidget()
         if parent is None:
             return
@@ -1513,6 +1532,7 @@ class RoiToolIsland(QFrame):
         self.set_dock_side(min(distances, key=distances.get))
 
     def reposition_to_dock(self) -> None:
+        """Move the island to its current docked position."""
         parent = self.parentWidget()
         if parent is None:
             return
@@ -1553,6 +1573,7 @@ class RoiToolIsland(QFrame):
 
 
 class MovieCardBorderOverlay(QWidget):
+    """Overlay widget that draws the movie card border."""
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setAttribute(WA_TRANSPARENT_FOR_MOUSE_EVENTS, True)
@@ -1560,6 +1581,7 @@ class MovieCardBorderOverlay(QWidget):
         self.setAutoFillBackground(False)
 
     def paintEvent(self, event) -> None:
+        """Paint the movie card border overlay."""
         outer_rect = QRectF(self.rect())
         border_rect = outer_rect.adjusted(0.5, 0.5, -0.5, -0.5)
         if border_rect.width() <= 0 or border_rect.height() <= 0:
@@ -1582,6 +1604,7 @@ class MovieCardBorderOverlay(QWidget):
 
 
 class MovieCardFrame(QFrame):
+    """Frame widget that keeps a border overlay above movie controls."""
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("viewerCard")
@@ -1590,19 +1613,23 @@ class MovieCardFrame(QFrame):
         self.raise_border()
 
     def raise_border(self) -> None:
+        """Raise the border overlay above child widgets."""
         self.border_overlay.setGeometry(self.rect())
         self.border_overlay.raise_()
         self.border_overlay.update()
 
     def resizeEvent(self, event) -> None:
+        """Resize the border overlay with the movie card frame."""
         super().resizeEvent(event)
         self.raise_border()
 
 
 class MovieStage(QWidget):
+    """Movie viewing stage that positions floating ROI controls."""
     resized = Signal()
 
     def resizeEvent(self, event) -> None:
+        """Reposition floating controls when the movie stage resizes."""
         super().resizeEvent(event)
         self.resized.emit()
 
@@ -1620,11 +1647,13 @@ class _ComboPopupFrame(QFrame):
         self._combo_box = combo_box
 
     def hideEvent(self, event) -> None:
+        """Notify the combo box when the custom popup frame closes."""
         self._combo_box._popup_frame_hidden()
         super().hideEvent(event)
 
 
 class ModernComboBox(QComboBox):
+    """Combo box with a custom popup frame and styling."""
     _POPUP_REOPEN_GUARD_SECONDS = 0.15
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -1635,6 +1664,7 @@ class ModernComboBox(QComboBox):
         self._ignore_popup_show_until = 0.0
 
     def mousePressEvent(self, event) -> None:
+        """Open the custom combo popup on mouse press."""
         if event.button() == LEFT_BUTTON and self._popup_frame is not None and self._popup_frame.isVisible():
             self.hidePopup()
             self._ignore_popup_show_until = 0.0
@@ -1643,6 +1673,7 @@ class ModernComboBox(QComboBox):
         super().mousePressEvent(event)
 
     def showPopup(self) -> None:
+        """Display the custom-styled combo popup."""
         if time.monotonic() < self._ignore_popup_show_until:
             self._ignore_popup_show_until = 0.0
             return
@@ -1691,6 +1722,7 @@ class ModernComboBox(QComboBox):
         self._popup_view.setFocus()
 
     def hidePopup(self) -> None:
+        """Hide the custom-styled combo popup."""
         if self._popup_frame is not None:
             self._popup_frame.hide()
 
@@ -1705,6 +1737,7 @@ class ModernComboBox(QComboBox):
 
 
 class RoundedToolTip(QWidget):
+    """Custom rounded tooltip widget for the GUI."""
     def __init__(self) -> None:
         super().__init__(None, TOOLTIP_WINDOW | FRAMELESS_WINDOW_HINT | NO_DROP_SHADOW_WINDOW_HINT)
         self.setObjectName("roundedTooltip")
@@ -1721,6 +1754,7 @@ class RoundedToolTip(QWidget):
         layout.addWidget(self.label)
 
     def paintEvent(self, event) -> None:
+        """Paint the rounded tooltip background and text."""
         painter = QPainter(self)
         antialiasing = QPainter.RenderHint.Antialiasing if hasattr(QPainter, "RenderHint") else QPainter.Antialiasing
         painter.setRenderHint(antialiasing, True)
@@ -1731,6 +1765,7 @@ class RoundedToolTip(QWidget):
         super().paintEvent(event)
 
     def show_text(self, text: str, pos) -> None:
+        """Show tooltip text near a global screen position."""
         self.label.setText(text)
         self.adjustSize()
         target_x = pos.x() + 14
@@ -1748,11 +1783,13 @@ class RoundedToolTip(QWidget):
 
 
 class RoundedToolTipFilter(QObject):
+    """Event filter that manages rounded tooltips for watched widgets."""
     def __init__(self, parent: QApplication) -> None:
         super().__init__(parent)
         self.tooltip = RoundedToolTip()
 
     def eventFilter(self, obj, event) -> bool:
+        """Show or hide a rounded tooltip for watched widgets."""
         event_type = event.type()
         if event_type == EVENT_TOOLTIP:
             text = obj.toolTip() if isinstance(obj, QWidget) else ""
@@ -1767,16 +1804,19 @@ class RoundedToolTipFilter(QObject):
 
 
 class SwitchButton(QCheckBox):
+    """Animated toggle switch used by the GUI."""
     def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(text, parent)
         self.setCursor(QCursor(_qt_enum("CursorShape", "PointingHandCursor")))
         self.setMinimumSize(self.sizeHint())
 
     def sizeHint(self) -> QSize:
+        """Return the preferred size for the switch button."""
         text_width = self.fontMetrics().horizontalAdvance(self.text()) if hasattr(self.fontMetrics(), "horizontalAdvance") else self.fontMetrics().boundingRect(self.text()).width()
         return QSize(max(94, int(text_width) + 54), 28)
 
     def paintEvent(self, event) -> None:
+        """Paint the switch track, thumb, and label."""
         painter = QPainter(self)
         painter.setRenderHint(ANTIALIASING)
 
@@ -1806,6 +1846,7 @@ class SwitchButton(QCheckBox):
 
 
 class SegmentedScopeSwitch(QWidget):
+    """Two-option segmented switch for trace display scope."""
     valueChanged = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -1830,12 +1871,15 @@ class SegmentedScopeSwitch(QWidget):
         self.setSizePolicy(SIZE_FIXED, SIZE_FIXED)
 
     def sizeHint(self) -> QSize:
+        """Return the preferred size for the segmented scope switch."""
         return QSize(254, 34)
 
     def value(self) -> str:
+        """Return the currently selected segment value."""
         return self._value
 
     def setValue(self, value: str, *, emit_signal: bool = False, animated: bool = True) -> None:
+        """Set the selected segment value."""
         if value not in {key for key, _ in self._items}:
             return
         target = float(self._index_for_value(value))
@@ -1942,6 +1986,7 @@ class SegmentedScopeSwitch(QWidget):
         return QRectF(0.5, 2.5, max(1.0, self.width() - 1.0), max(1.0, self.height() - 5.0))
 
     def mousePressEvent(self, event) -> None:
+        """Select a segment from a mouse press."""
         outer = self._outer_rect()
         point = _event_pos(event)
         next_value = "selected" if point.x() >= outer.center().x() else "all"
@@ -1949,6 +1994,7 @@ class SegmentedScopeSwitch(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:
+        """Handle keyboard navigation between switch segments."""
         key = event.key()
         left_key = _qt_enum("Key", "Key_Left")
         right_key = _qt_enum("Key", "Key_Right")
@@ -1967,6 +2013,7 @@ class SegmentedScopeSwitch(QWidget):
         super().keyPressEvent(event)
 
     def paintEvent(self, event) -> None:
+        """Paint the segmented switch and animated thumb."""
         painter = QPainter(self)
         painter.setRenderHint(ANTIALIASING)
         enabled = self.isEnabled()
@@ -1991,9 +2038,11 @@ class SegmentedScopeSwitch(QWidget):
             painter.drawText(rect, _qt_enum("AlignmentFlag", "AlignCenter"), text)
 
     def getThumbPosition(self) -> float:
+        """Return the animated thumb position."""
         return float(self._thumb_position)
 
     def setThumbPosition(self, value: float) -> None:
+        """Set the animated thumb position."""
         self._thumb_position = max(0.0, min(1.0, float(value)))
         self.update()
 
@@ -2131,18 +2180,22 @@ def _parse_float_list(text: str, label: str) -> tuple[float, ...]:
 
 
 class TraceWindow(QDialog):
+    """Window that hosts the trace plotting canvas."""
     visibilityChanged = Signal(bool)
 
     def showEvent(self, event) -> None:
+        """Track when the trace window becomes visible."""
         super().showEvent(event)
         self.visibilityChanged.emit(True)
 
     def hideEvent(self, event) -> None:
+        """Track when the trace window is hidden."""
         super().hideEvent(event)
         self.visibilityChanged.emit(False)
 
 
 class SpinBoxArrowStyle(QProxyStyle):
+    """Proxy style for drawing custom spinbox arrows."""
     def _draw_spinbox_arrow(self, painter, center: QPointF, *, up: bool, enabled: bool) -> None:
         offset = 2.6
         if up:
@@ -2166,6 +2219,7 @@ class SpinBoxArrowStyle(QProxyStyle):
         painter.drawPolyline(QPolygonF(points))
 
     def drawPrimitive(self, element, option, painter, widget=None) -> None:
+        """Draw custom spinbox arrow primitives."""
         if element in (SPIN_UP_INDICATOR, SPIN_DOWN_INDICATOR):
             painter.save()
             painter.setRenderHint(ANTIALIASING)
@@ -2181,6 +2235,7 @@ class SpinBoxArrowStyle(QProxyStyle):
 
 
 class TraceCanvas(FigureCanvas):
+    """Matplotlib canvas for ROI trace and spike visualizations."""
     viewChanged = Signal(float, float)
     roiDoubleClicked = Signal(int)
 
@@ -2218,6 +2273,7 @@ class TraceCanvas(FigureCanvas):
         self.plot_empty()
 
     def plot_empty(self) -> None:
+        """Render an empty trace plot state."""
         self._apply_figure_layout(has_data=False)
         self._x = np.array([], dtype=float)
         self._display_trace = np.empty((0, 0), dtype=float)
@@ -2251,6 +2307,7 @@ class TraceCanvas(FigureCanvas):
         mode: str = "trace",
         time_window: Optional[tuple[float, float]] = None,
     ) -> None:
+        """Plot extraction results and ROI trace data."""
         self._apply_figure_layout(has_data=True)
         self._span_selector = None
         self._overview_selection = None
@@ -2473,26 +2530,32 @@ class TraceCanvas(FigureCanvas):
         return x[indices], y[indices]
 
     def has_data(self) -> bool:
+        """Return whether the canvas currently has plotted trace data."""
         return bool(self._x.size)
 
     def time_bounds(self) -> tuple[float, float]:
+        """Return the time range covered by the current trace data."""
         if self._x.size == 0:
             return 0.0, 0.0
         return float(self._x[0]), float(self._x[-1])
 
     def current_time_window(self) -> tuple[float, float]:
+        """Return the currently visible time window."""
         if self._view_xlim is not None:
             return self._view_xlim
         return self.time_bounds()
 
     def set_time_window(self, xmin: float, xmax: float) -> None:
+        """Set the visible trace time window."""
         self._set_view(float(xmin), float(xmax))
 
     def reset_view(self) -> None:
+        """Reset the trace canvas to the full time range."""
         xmin, xmax = self.time_bounds()
         self._set_view(xmin, xmax)
 
     def zoom_view(self, factor: float) -> None:
+        """Zoom the trace time window by a scale factor."""
         if self._view_xlim is None:
             return
         x0, x1 = self._view_xlim
@@ -2794,6 +2857,7 @@ class TraceCanvas(FigureCanvas):
         return ymin - pad, ymax + pad
 
     def save_png(self, path: str, *, dpi: int = 300) -> None:
+        """Save the current trace figure as a PNG file."""
         old_size = tuple(self.figure.get_size_inches())
         animated_states = [
             (artist, bool(artist.get_animated()))
@@ -2939,6 +3003,7 @@ class TraceCanvas(FigureCanvas):
 
 
 class MovieGraphicsView(QGraphicsView):
+    """Graphics view for movie frames, ROI drawing, and mask overlays."""
     roiChanged = Signal(object, object)
     roiPicked = Signal(int)
     roiSelectionCleared = Signal()
@@ -2999,6 +3064,7 @@ class MovieGraphicsView(QGraphicsView):
             self.zoomChanged.emit(self.zoom_percent)
 
     def set_fit_mode(self, mode: str) -> None:
+        """Enable or disable fit-to-view scaling."""
         mode = mode.strip().lower()
         if mode not in {"fit", "fill", "actual"}:
             mode = "fit"
@@ -3006,19 +3072,23 @@ class MovieGraphicsView(QGraphicsView):
         self.apply_view_transform()
 
     def set_actual_size(self) -> None:
+        """Display movie pixels at actual size."""
         self.fit_mode = "actual"
         self._set_zoom_percent_value(100.0)
         self.apply_view_transform()
 
     def set_zoom_percent(self, percent: float) -> None:
+        """Set the movie view zoom as a percentage."""
         self.fit_mode = "actual"
         self._set_zoom_percent_value(percent)
         self.apply_view_transform()
 
     def zoom_by(self, factor: float) -> None:
+        """Scale the current movie view zoom by a factor."""
         self.set_zoom_percent(self.zoom_percent * float(factor))
 
     def apply_view_transform(self) -> None:
+        """Apply the current fit or zoom transform to the view."""
         rect = self.scene.sceneRect()
         if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
             return
@@ -3042,6 +3112,7 @@ class MovieGraphicsView(QGraphicsView):
         self._set_zoom_percent_value(scale * 100.0)
 
     def set_roi_mode(self, mode: str) -> None:
+        """Set the active ROI drawing or selection mode."""
         mode = mode.strip().lower()
         if mode not in {"select", "freehand", "rectangle", "eraser"}:
             mode = "select"
@@ -3053,9 +3124,11 @@ class MovieGraphicsView(QGraphicsView):
         self.setCursor(QCursor(_qt_enum("CursorShape", cursor_name)))
 
     def set_brush_size(self, size: int) -> None:
+        """Set the freehand ROI brush size."""
         self.brush_size = max(1.0, float(size))
 
     def set_frame(self, frame: np.ndarray, *, rgb: bool = False) -> None:
+        """Display a movie frame and optional mask overlay."""
         frame = np.asarray(frame)
         if rgb:
             image = _normalize_rgb_to_uint8(frame)
@@ -3075,6 +3148,7 @@ class MovieGraphicsView(QGraphicsView):
         self.apply_view_transform()
 
     def show_empty_message(self, message: str = "No movie loaded") -> None:
+        """Show a centered empty-state message in the movie view."""
         self._drag_start = None
         self._freehand_points.clear()
         self._remove_roi_item()
@@ -3088,12 +3162,14 @@ class MovieGraphicsView(QGraphicsView):
         self.apply_view_transform()
 
     def clear_roi(self) -> None:
+        """Clear the interactive ROI drawing overlay."""
         self._drag_start = None
         self._freehand_points.clear()
         self._remove_roi_item()
         self.clear_mask_overlay()
 
     def clear_mask_overlay(self) -> None:
+        """Remove the displayed ROI mask overlay."""
         if self.mask_item is not None:
             self.scene.removeItem(self.mask_item)
             self.mask_item = None
@@ -3103,6 +3179,7 @@ class MovieGraphicsView(QGraphicsView):
         self.current_mask = None
 
     def set_mask_overlay(self, mask: np.ndarray, roi_id: int) -> None:
+        """Display a labeled ROI mask overlay."""
         self.clear_mask_overlay()
         mask = np.asarray(mask)
         if mask.ndim != 2 or not np.any(mask > 0):
@@ -3119,6 +3196,7 @@ class MovieGraphicsView(QGraphicsView):
         self._add_roi_labels(mask)
 
     def center_on_roi(self, roi_id: int) -> None:
+        """Center the view on a specific ROI label."""
         if self.current_mask is None:
             return
         ys, xs = np.nonzero(self.current_mask == int(roi_id))
@@ -3127,6 +3205,7 @@ class MovieGraphicsView(QGraphicsView):
         self.centerOn(float(np.mean(xs)), float(np.mean(ys)))
 
     def set_overlay_visible(self, visible: bool) -> None:
+        """Show or hide the ROI mask overlay."""
         self.overlay_visible = bool(visible)
         if self.mask_item is not None:
             self.mask_item.setVisible(self.overlay_visible)
@@ -3221,6 +3300,7 @@ class MovieGraphicsView(QGraphicsView):
         return pen
 
     def mousePressEvent(self, event) -> None:
+        """Handle movie-view mouse presses for ROI tools and panning."""
         point = self._map_event_to_image(event)
         if point is None:
             if event.button() == LEFT_BUTTON and self.roi_mode == "select":
@@ -3259,6 +3339,7 @@ class MovieGraphicsView(QGraphicsView):
         self.scene.addItem(self.roi_item)
 
     def mouseMoveEvent(self, event) -> None:
+        """Handle movie-view mouse movement for ROI tools and panning."""
         if self.roi_mode in {"freehand", "eraser"} and self._freehand_points:
             point = self._map_event_to_image(event)
             if point is None:
@@ -3281,6 +3362,7 @@ class MovieGraphicsView(QGraphicsView):
             self.roi_item.setRect(rect)
 
     def mouseReleaseEvent(self, event) -> None:
+        """Complete ROI drawing or panning interactions."""
         if self.roi_mode in {"freehand", "eraser"} and self._freehand_points:
             point = self._map_event_to_image(event)
             if point is not None:
@@ -3318,6 +3400,7 @@ class MovieGraphicsView(QGraphicsView):
         self.roiChanged.emit(mask, {"type": "rectangle", "rect": rect})
 
     def mouseDoubleClickEvent(self, event) -> None:
+        """Handle double-click actions in the movie view."""
         super().mouseDoubleClickEvent(event)
 
     def _update_freehand_preview(self) -> None:
@@ -3380,6 +3463,7 @@ class MovieGraphicsView(QGraphicsView):
         self.roiChanged.emit(mask, {"type": edit_type, "points": points, "brush_size": self.brush_size})
 
     def resizeEvent(self, event) -> None:
+        """Reapply the movie view transform after resizing."""
         super().resizeEvent(event)
         if self.empty_text_item.isVisible():
             self._center_empty_message()
@@ -3388,6 +3472,7 @@ class MovieGraphicsView(QGraphicsView):
 
 
 class PreprocessWorker(QObject):
+    """Background worker for movie conversion and motion correction."""
     finished = Signal(str)
     failed = Signal(str)
     progress = Signal(int, str)
@@ -3416,6 +3501,7 @@ class PreprocessWorker(QObject):
         self.progress.emit(max(0, min(100, scaled)), message)
 
     def run(self) -> None:
+        """Run TIFF conversion and motion correction in a worker thread."""
         try:
             source = Path(self.source_path)
             suffix = source.suffix.lower()
@@ -3489,6 +3575,7 @@ class PreprocessWorker(QObject):
 
 
 class ExtractionWorker(QObject):
+    """Background worker for ROI trace extraction."""
     finished = Signal(object)
     failed = Signal(str)
     status = Signal(str)
@@ -3525,6 +3612,7 @@ class ExtractionWorker(QObject):
         self.all_rois = bool(all_rois)
 
     def run(self) -> None:
+        """Run trace extraction in a worker thread."""
         movie = None
         try:
             _validate_selected_device(self.device, "extraction")
@@ -3688,6 +3776,7 @@ class ExtractionWorker(QObject):
 
 
 class SegmentationWorker(QObject):
+    """Background worker for Cellpose ROI segmentation."""
     finished = Signal(object)
     failed = Signal(str)
     status = Signal(str)
@@ -3717,6 +3806,7 @@ class SegmentationWorker(QObject):
         self.save_to_disk = bool(save_to_disk)
 
     def run(self) -> None:
+        """Run Cellpose segmentation in a worker thread."""
         movie = None
         try:
             _validate_selected_device(self.device, "summary building")
@@ -3760,6 +3850,7 @@ class SegmentationWorker(QObject):
 
 
 class MainWindow(QMainWindow):
+    """Main torch-volpy GUI window."""
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("TorchVolpy Studio")
@@ -4416,6 +4507,7 @@ class MainWindow(QMainWindow):
         self.trace_canvas.reset_view()
 
     def save_trace_png_dialog(self) -> None:
+        """Prompt for a path and save the current trace plot as PNG."""
         if not self.trace_canvas.has_data():
             QMessageBox.warning(self, "Save Trace Failed", "No trace plot is available to save.")
             return
@@ -4983,6 +5075,7 @@ class MainWindow(QMainWindow):
         self._refresh_roi_inspector()
 
     def open_movie_dialog(self) -> None:
+        """Prompt the user to choose and open a movie file."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Movie",
@@ -4998,6 +5091,7 @@ class MainWindow(QMainWindow):
             self.preprocess_and_load_movie(path)
 
     def preprocess_and_load_movie(self, path: str) -> None:
+        """Preprocess a source movie and load the corrected result."""
         self._reset_loaded_movie_state()
         device = self._selected_device()
         self.open_button.setEnabled(False)
@@ -5056,6 +5150,7 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Movie Preparation Failed", message)
 
     def load_movie(self, path: str) -> None:
+        """Load a movie into the GUI state and viewer."""
         self._reset_loaded_movie_state()
 
         dataset = self.dataset_edit.text().strip() or "movie"
@@ -5146,6 +5241,7 @@ class MainWindow(QMainWindow):
         return np.repeat(np.asarray(gray)[:, :, None], 3, axis=2)
 
     def show_frame(self, frame_index: int) -> None:
+        """Display the current movie frame and synchronized overlays."""
         if self.movie is None:
             return
         try:
@@ -5167,6 +5263,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(str(exc))
 
     def toggle_playback(self) -> None:
+        """Start or stop movie playback."""
         if self.timer.isActive():
             self.timer.stop()
             self._playback_last_time = None
@@ -5218,6 +5315,7 @@ class MainWindow(QMainWindow):
         self.frame_slider.setValue(value)
 
     def browse_cellpose_model(self) -> None:
+        """Prompt the user to select a Cellpose model file."""
         current_path = self.cellpose_model_edit.text().strip()
         initial_dir = str(Path(current_path).parent) if current_path else str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
@@ -5230,6 +5328,7 @@ class MainWindow(QMainWindow):
             self.cellpose_model_edit.setText(path)
 
     def load_mask_dialog(self) -> None:
+        """Prompt the user to load an ROI mask file."""
         if self.movie_path is None or self.movie is None:
             QMessageBox.warning(self, "Missing Movie", "Open a movie before loading an ROI mask.")
             return
@@ -5262,6 +5361,7 @@ class MainWindow(QMainWindow):
         self.extraction_status_label.setText("ROI mask loaded")
 
     def run_cellpose_segmentation(self) -> None:
+        """Run Cellpose and load the generated ROI mask."""
         if self.movie_path is None:
             QMessageBox.warning(self, "Missing Movie", "Open a movie before running Cellpose.")
             return
@@ -5505,6 +5605,7 @@ class MainWindow(QMainWindow):
         return options
 
     def open_advanced_options_dialog(self) -> None:
+        """Open the advanced extraction options dialog."""
         method = self.method_combo.currentText()
         specs = ADVANCED_OPTION_SPECS.get(method, ())
         if not specs:
@@ -5749,6 +5850,7 @@ class MainWindow(QMainWindow):
                 del self.trace_cache[key]
 
     def extract_all_traces(self) -> None:
+        """Extract traces for all available ROI labels."""
         if self.movie_path is None or self.roi_mask is None:
             QMessageBox.warning(self, "Missing ROI", "Run Cellpose or load an ROI mask before extracting all ROI traces.")
             return
@@ -6041,6 +6143,7 @@ class MainWindow(QMainWindow):
         return data, ["time_s", *headers]
 
     def save_all_traces_dialog(self) -> None:
+        """Prompt for a path and save all extracted traces."""
         results = self._cached_results_for_all_rois()
         if not results:
             QMessageBox.warning(self, "Save All Failed", "Extract all ROIs with the current method/options before saving all traces.")
@@ -6065,6 +6168,7 @@ class MainWindow(QMainWindow):
         self.extraction_status_label.setText(f"Saved all traces to {Path(path).name}")
 
     def closeEvent(self, event) -> None:
+        """Clean up movie handles and worker state before closing."""
         self.timer.stop()
         if self.movie is not None and hasattr(self.movie, "close"):
             self.movie.close()
@@ -6072,6 +6176,7 @@ class MainWindow(QMainWindow):
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    """Start the torch-volpy Qt application."""
     qt_argv = _configure_qt_message_logging(list(sys.argv if argv is None else argv))
     app = QApplication(qt_argv)
     _apply_app_theme(app)

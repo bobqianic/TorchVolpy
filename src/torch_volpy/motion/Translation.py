@@ -608,4 +608,5 @@ class Translation:
         stop: Optional[int] = None,
         return_scores: bool = False,
     ):
+        """Estimate shifts for a frame range."""
         return self.estimate_range(start=start, stop=stop, return_scores=return_scores)

@@ -90,6 +90,7 @@ class IJAB:
         arr: np.ndarray,
         mask: Optional[np.ndarray] = None,
     ) -> Tuple[float, float]:
+        """Compute ImageJ-style display min and max values."""
         a = np.asarray(arr)
         if a.size == 0:
             raise ValueError("arr must not be empty")
@@ -149,6 +150,7 @@ class IJAB:
         out_range: Optional[Tuple[float, float]] = None,
         return_limits: bool = False,
     ):
+        """Apply ImageJ-style auto brightness and contrast scaling."""
         a = np.asarray(arr)
         display_min, display_max = self.display_range(a, mask=mask)
 
@@ -179,4 +181,5 @@ class IJAB:
         return (adjusted, (display_min, display_max)) if return_limits else adjusted
 
     def __call__(self, arr: np.ndarray, **kwargs):
+        """Apply ImageJ-style auto brightness and contrast scaling."""
         return self.apply(arr, **kwargs)

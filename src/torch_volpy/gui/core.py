@@ -87,13 +87,16 @@ class TiffMovie:
 
     @property
     def num_frames(self) -> int:
+        """Number of frames in the TIFF stack."""
         return int(self.shape[0])
 
     @property
     def frame_shape(self) -> Tuple[int, ...]:
+        """Shape of one TIFF frame, excluding the time axis."""
         return tuple(self.shape[1:])
 
     def close(self) -> None:
+        """Close the TIFF file or memory map backing this adapter."""
         data = getattr(self, "_data", None)
         if isinstance(data, np.memmap):
             mmap = getattr(data, "_mmap", None)
@@ -154,6 +157,7 @@ class TiffMovie:
         device: Optional[Union[str, torch.device]] = None,
         copy: bool = False,
     ):
+        """Read a TIFF frame or frame range as a numpy array or tensor."""
         if self._data is None:
             arr = self._read_lazy(index)
         else:
@@ -181,6 +185,7 @@ class TiffMovie:
         dtype: Optional[Union[np.dtype, str]] = None,
         device: Optional[Union[str, torch.device]] = None,
     ):
+        """Read a contiguous frame range from the TIFF stack."""
         return self.read(
             slice(start, stop, step),
             as_tensor=as_tensor,
@@ -215,6 +220,7 @@ class ChannelMovie:
         dtype: Optional[Union[np.dtype, str]] = None,
         device: Optional[Union[str, torch.device]] = None,
     ):
+        """Read grayscale frames from the selected channel."""
         if self.channel is None:
             index = slice(start, stop, step)
         else:
@@ -234,6 +240,7 @@ def open_movie(path: PathLike, dataset: str = "movie"):
 
 
 def default_h5_path_for_movie(path: PathLike) -> Path:
+    """Return the default HDF5 path corresponding to a source movie path."""
     path = Path(path)
     if path.suffix.lower() in {".h5", ".hdf5"}:
         return path
@@ -241,6 +248,7 @@ def default_h5_path_for_movie(path: PathLike) -> Path:
 
 
 def default_corrected_h5_path(path: PathLike) -> Path:
+    """Return the default corrected HDF5 output path for a source movie."""
     path = Path(path)
     if path.name.startswith("corrected_") and path.suffix.lower() in {".h5", ".hdf5"}:
         return path
@@ -320,6 +328,7 @@ def convert_tiff_to_h5(
 
 
 def is_motion_corrected_h5(path: PathLike, dataset: str = "movie") -> bool:
+    """Return whether an HDF5 dataset is marked as motion corrected."""
     path = Path(path)
     if path.suffix.lower() not in {".h5", ".hdf5"} or not path.exists():
         return False
@@ -756,6 +765,7 @@ def freehand_to_mask(
 
 
 def available_roi_ids(mask: np.ndarray) -> np.ndarray:
+    """Return non-background ROI ids present in a label mask or instance stack."""
     arr = np.asarray(mask)
     if arr.ndim == 3:
         planes = arr.reshape(arr.shape[0], -1)
@@ -947,6 +957,7 @@ def run_spikepursuit(
     flip_signal: bool = True,
     **spikepursuit_options,
 ):
+    """Run SpikePursuit extraction for one ROI from the GUI pipeline."""
     spikepursuit_options, _, _ = _split_spikepursuit_batch_options(spikepursuit_options)
     mask = torch.as_tensor(np.asarray(roi_mask), dtype=torch.int32)
     extractor = Spikepursuit(
@@ -990,6 +1001,7 @@ def iter_spikepursuit_results(
     flip_signal: bool = True,
     **spikepursuit_options,
 ) -> Iterator:
+    """Yield SpikePursuit results for multiple ROIs from the GUI pipeline."""
     options, batch_patch_bytes, max_rois_per_batch = _split_spikepursuit_batch_options(spikepursuit_options)
     mask = torch.as_tensor(np.asarray(roi_mask), dtype=torch.int32)
     extractor = Spikepursuit(
@@ -1020,6 +1032,7 @@ def run_ali(
     padding: int = 0,
     **ali_options,
 ):
+    """Run ALI extraction for one ROI and return the result with its crop box."""
     data, bbox = crop_movie_hwt(
         movie,
         roi_mask,
@@ -1201,6 +1214,7 @@ def load_mask_file(
 
 
 def ensure_shape_matches(mask: np.ndarray, frame_shape: Iterable[int]) -> None:
+    """Raise if an ROI mask shape does not match a movie frame shape."""
     frame_shape = tuple(int(v) for v in frame_shape)
     if len(frame_shape) == 3:
         frame_shape = frame_shape[:2]

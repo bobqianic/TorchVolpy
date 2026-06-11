@@ -123,33 +123,40 @@ class Movie(Dataset):
 
     @property
     def shape(self) -> Tuple[int, ...]:
+        """Shape of the backing HDF5 dataset."""
         return self._shape
 
     @property
     def dtype(self) -> np.dtype:
+        """NumPy dtype of the backing HDF5 dataset."""
         return self._dtype
 
     @property
     def num_frames(self) -> int:
+        """Number of frames along the time axis."""
         return int(self._shape[0])
 
     @property
     def frame_shape(self) -> Tuple[int, ...]:
+        """Shape of one frame, excluding the time axis."""
         return tuple(self._shape[1:])
 
     # ---------- file lifecycle ----------
 
     def close(self) -> None:
+        """Close any open HDF5 file handle held by this Movie."""
         if self._file is not None:
             self._file.close()
         self._file = None
         self._dset = None
 
     def __enter__(self) -> "Movie":
+        """Open the backing HDF5 file for context-manager usage."""
         self._ensure_open()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        """Close the backing HDF5 file when leaving a context manager."""
         self.close()
 
     def __del__(self) -> None:
@@ -161,6 +168,7 @@ class Movie(Dataset):
     # ---------- PyTorch Dataset API ----------
 
     def __len__(self) -> int:
+        """Return the number of movie frames."""
         return self.num_frames
 
     def __getitem__(self, idx):
@@ -382,6 +390,7 @@ class Movie(Dataset):
         overwrite: bool = False,
         **kwargs: Any,
     ) -> bool:
+        """Save a tensor or array to HDF5 or TIFF based on the path suffix."""
         path = Path(path)
 
         if path.suffix.lower() in {".tif", ".tiff"}:
@@ -525,6 +534,7 @@ class Movie(Dataset):
         rdcc_nbytes: Optional[int] = None,
         batch_size: int = 64,
     ) -> Path:
+        """Export an HDF5 movie dataset to a multi-page TIFF file."""
         h5_path = str(h5_path)
         tiff_path = Path(tiff_path)
 

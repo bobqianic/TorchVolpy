@@ -1605,6 +1605,7 @@ class MotionCorrect:
         return Movie(out_h5_path, dataset=dataset, mode="r")
 
     def summary(self) -> dict:
+        """Return a dictionary describing the configured correction run."""
         out = {
             "num_frames": self.num_frames,
             "frame_shape": self.frame_shape,
@@ -1623,4 +1624,5 @@ class MotionCorrect:
         return out
 
     def __call__(self, *args, **kwargs):
+        """Apply motion correction and save the corrected movie."""
         return self.save(*args, **kwargs)
