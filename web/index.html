@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>torch-volpy API Search</title>
+    <meta
+      name="description"
+      content="Searchable API definitions for torch-volpy, generated from the Python source code."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">torch-volpy</p>
+        <h1>API Search</h1>
+      </div>
+      <nav class="header-links" aria-label="Site links">
+        <a href="api.json">api.json</a>
+        <a href="README.md">deploy notes</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="search-panel" aria-labelledby="search-title">
+        <div>
+          <h2 id="search-title">Search API Definitions</h2>
+          <p class="lede">
+            Static API index generated from <code>src</code>. Humans can search here; bots can read
+            <a href="api.json"><code>api.json</code></a>.
+          </p>
+        </div>
+        <div class="search-controls">
+          <label class="search-label" for="search-input">Query</label>
+          <input
+            id="search-input"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Try Movie.read_frames, max_shifts, Spikepursuit, ROI..."
+          >
+          <div class="filters" aria-label="Search filters">
+            <label>
+              <span>Kind</span>
+              <select id="kind-filter">
+                <option value="all">All definitions</option>
+                <option value="module">Modules</option>
+                <option value="class">Classes</option>
+                <option value="function">Functions</option>
+                <option value="method">Methods</option>
+                <option value="property">Properties</option>
+                <option value="field">Dataclass fields</option>
+                <option value="alias">Aliases</option>
+                <option value="constant">Constants</option>
+              </select>
+            </label>
+            <label class="checkbox">
+              <input id="public-only" type="checkbox" checked>
+              <span>Public API only</span>
+            </label>
+          </div>
+        </div>
+        <dl id="stats" class="stats" aria-label="API index statistics"></dl>
+      </section>
+
+      <section class="api-browser" aria-label="API browser">
+        <aside class="results-panel">
+          <div class="results-header">
+            <h2>Results</h2>
+            <span id="result-count">Loading...</span>
+          </div>
+          <ol id="results" class="results" aria-live="polite"></ol>
+        </aside>
+
+        <article id="details" class="details" aria-live="polite">
+          <p class="empty-state">Loading API index...</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      Generated from source with <code>web/generate_api_index.py</code>.
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
